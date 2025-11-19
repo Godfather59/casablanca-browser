@@ -56,21 +56,23 @@ class TaskList {
   }
 
   update (id, data, emit=true) {
-    let task = this.get(id)
+    const task = this.get(id)
 
     if (!task) {
       throw new ReferenceError('Attempted to update a task that does not exist.')
     }
 
-    for (var key in data) {
+    Object.keys(data).forEach(key => {
       if (data[key] === undefined) {
         throw new ReferenceError('Key ' + key + ' is undefined.')
       }
+
       task[key] = data[key]
+
       if (emit) {
         this.emit('task-updated', id, key, data[key])
       }
-    }
+    })
   }
 
   getStringifyableState () {
@@ -113,14 +115,16 @@ class TaskList {
   }
 
   setSelected (id, emit = true, onWindow=windowId) {
-    for (var i = 0; i < this.tasks.length; i++) {
-      if (this.tasks[i].selectedInWindow === onWindow) {
-        this.tasks[i].selectedInWindow = null
+    this.tasks.forEach(task => {
+      if (task.selectedInWindow === onWindow) {
+        task.selectedInWindow = null
       }
-      if (this.tasks[i].id === id) {
-        this.tasks[i].selectedInWindow = onWindow
+
+      if (task.id === id) {
+        task.selectedInWindow = onWindow
       }
-    }
+    })
+
     if (onWindow === windowId) {
       window.tabs = this.get(id).tabs
       if (emit) {
@@ -150,12 +154,13 @@ class TaskList {
   }
 
   getLastActivity (id) {
-    var tabs = this.get(id).tabs
-    var lastActivity = 0
+    const tabList = this.get(id).tabs
 
-    for (var i = 0; i < tabs.count(); i++) {
-      if (tabs.getAtIndex(i).lastActivity > lastActivity) {
-        lastActivity = tabs.getAtIndex(i).lastActivity
+    let lastActivity = 0
+
+    for (let i = 0; i < tabList.count(); i++) {
+      if (tabList.getAtIndex(i).lastActivity > lastActivity) {
+        lastActivity = tabList.getAtIndex(i).lastActivity
       }
     }
 
@@ -163,7 +168,7 @@ class TaskList {
   }
 
   isCollapsed (id) {
-    var task = this.get(id)
+    const task = this.get(id)
     return task.collapsed || (task.collapsed === undefined && Date.now() - tasks.getLastActivity(task.id) > (7 * 24 * 60 * 60 * 1000))
   }
 
@@ -184,11 +189,7 @@ class TaskList {
   filter (...args) { return this.tasks.filter.apply(this.tasks, args) }
 
   find (filter) {
-    for (var i = 0, len = this.tasks.length; i < len; i++) {
-      if (filter(this.tasks[i], i, this.tasks)) {
-        return this.tasks[i]
-      }
-    }
+    return this.tasks.find(filter)
   }
 
   static getRandomId () {

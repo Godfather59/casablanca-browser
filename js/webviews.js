@@ -1,18 +1,18 @@
-var urlParser = require('util/urlParser.js')
-var settings = require('util/settings/settings.js')
+const urlParser = require('util/urlParser.js')
+const settings = require('util/settings/settings.js')
 
 /* implements selecting webviews, switching between them, and creating new ones. */
 
-var placeholderImg = document.getElementById('webview-placeholder')
+const placeholderImg = document.getElementById('webview-placeholder')
 
 // how long a background tab can stay loaded before being suspended
 // kept fairly conservative to avoid surprising users; can be tuned later
-var TAB_SUSPEND_AFTER_MS = 60 * 60 * 1000 // 1 hour
-var TAB_SUSPEND_CHECK_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+const TAB_SUSPEND_AFTER_MS = 60 * 60 * 1000 // 1 hour
+const TAB_SUSPEND_CHECK_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 
-var hasSeparateTitlebar = settings.get('useSeparateTitlebar')
-var windowIsMaximized = false // affects navbar height on Windows
-var windowIsFullscreen = false
+const hasSeparateTitlebar = settings.get('useSeparateTitlebar')
+let windowIsMaximized = false // affects navbar height on Windows
+let windowIsFullscreen = false
 
 function captureCurrentTab (options) {
   if (tabs.get(tabs.getSelected()).private) {
@@ -113,6 +113,8 @@ const webviews = {
   },
   events: [],
   IPCEvents: [],
+  captureIntervalId: null,
+  suspendIntervalId: null,
   hasViewForTab: function(tabId) {
     return tabId && tasks.getTaskContainingTab(tabId) && tasks.getTaskContainingTab(tabId).tabs.get(tabId).hasWebContents
   },
@@ -123,7 +125,7 @@ const webviews = {
     })
   },
   unbindEvent: function (event, fn) {
-    for (var i = 0; i < webviews.events.length; i++) {
+    for (let i = 0; i < webviews.events.length; i++) {
       if (webviews.events[i].event === event && webviews.events[i].fn === fn) {
         webviews.events.splice(i, 1)
         i--
@@ -149,7 +151,7 @@ const webviews = {
   },
   viewMargins: [0, 0, 0, 0], // top, right, bottom, left
   adjustMargin: function (margins) {
-    for (var i = 0; i < margins.length; i++) {
+    for (let i = 0; i < margins.length; i++) {
       webviews.viewMargins[i] += margins[i]
     }
     webviews.resize()
@@ -163,15 +165,13 @@ const webviews = {
         height: window.innerHeight
       }
     } else {
-      if (!hasSeparateTitlebar && (window.platformType === 'linux' || window.platformType === 'windows') && !windowIsMaximized && !windowIsFullscreen) {
-        var navbarHeight = 48
-      } else {
-        var navbarHeight = 36
-      }
+      const navbarHeight = (!hasSeparateTitlebar && (window.platformType === 'linux' || window.platformType === 'windows') && !windowIsMaximized && !windowIsFullscreen)
+        ? 48
+        : 36
 
       const viewMargins = webviews.viewMargins
 
-      let position = {
+      const position = {
         x: 0 + Math.round(viewMargins[3]),
         y: 0 + Math.round(viewMargins[0]) + navbarHeight,
         width: window.innerWidth - Math.round(viewMargins[1] + viewMargins[3]),
@@ -182,7 +182,7 @@ const webviews = {
     }
   },
   add: function (tabId, existingViewId) {
-    var tabData = tabs.get(tabId)
+    const tabData = tabs.get(tabId)
 
     // needs to be called before the view is created to that its listeners can be registered
     if (tabData.scrollPosition) {
@@ -195,8 +195,10 @@ const webviews = {
 
     // if the tab is private, we want to partition it. See http://electron.atom.io/docs/v0.34.0/api/web-view-tag/#partition
     // since tab IDs are unique, we can use them as partition names
+    let partition
     if (tabData.private === true) {
-      var partition = tabId.toString() // options.tabId is a number, which remote.session.fromPartition won't accept. It must be converted to a string first
+      // options.tabId is a number, which remote.session.fromPartition won't accept. It must be converted to a string first
+      partition = tabId.toString()
     }
 
     ipc.send('createView', {
@@ -382,11 +384,11 @@ window.addEventListener('resize', throttle(function () {
 // leave HTML fullscreen when leaving window fullscreen
 ipc.on('leave-full-screen', function () {
   // electron normally does this automatically (https://github.com/electron/electron/pull/13090/files), but it doesn't work for BrowserViews
-  for (var view in webviews.viewFullscreenMap) {
-    if (webviews.viewFullscreenMap[view]) {
-      webviews.callAsync(view, 'executeJavaScript', 'document.exitFullscreen()')
-    }
-  }
+    Object.keys(webviews.viewFullscreenMap).forEach(function (viewId) {
+      if (webviews.viewFullscreenMap[viewId]) {
+        webviews.callAsync(viewId, 'executeJavaScript', 'document.exitFullscreen()')
+      }
+    })
 })
 
 webviews.bindEvent('enter-html-full-screen', function (tabId) {
@@ -505,9 +507,10 @@ ipc.on('async-call-result', function (e, args) {
 
 ipc.on('view-ipc', function (e, args) {
   if (!webviews.hasViewForTab(args.id)) {
-    // the view could have been destroyed between when the event was occured and when it was recieved in the UI process, see https://github.com/minbrowser/min/issues/604#issuecomment-419653437
+    // the view could have been destroyed between when the event occured and when it was recieved in the UI process, see https://github.com/minbrowser/min/issues/604#issuecomment-419653437
     return
   }
+
   webviews.IPCEvents.forEach(function (item) {
     if (item.name === args.name) {
       item.fn(args.id, [args.data], args.frameId, args.frameURL)
@@ -515,44 +518,49 @@ ipc.on('view-ipc', function (e, args) {
   })
 })
 
-setInterval(function () {
-  captureCurrentTab()
-}, 15000)
+// capture current tab preview periodically so that tab switcher has fresh images
+if (!webviews.captureIntervalId) {
+  webviews.captureIntervalId = setInterval(function () {
+    captureCurrentTab()
+  }, 15000)
+}
 
 // periodically suspend long-inactive background tabs to save memory
-setInterval(function () {
-  if (!tasks || !tabs) {
-    return
-  }
+if (!webviews.suspendIntervalId) {
+  webviews.suspendIntervalId = setInterval(function () {
+    if (!tasks || !tabs) {
+      return
+    }
 
-  var now = Date.now()
+    const now = Date.now()
 
-  tasks.forEach(function (task) {
-    task.tabs.get().forEach(function (tab) {
-      if (!tab.hasWebContents) {
-        return
-      }
+    tasks.forEach(function (task) {
+      task.tabs.get().forEach(function (tab) {
+        if (!tab.hasWebContents) {
+          return
+        }
 
-      // never suspend the currently selected tab
-      if (tab.id === webviews.selectedId) {
-        return
-      }
+        // never suspend the currently selected tab
+        if (tab.id === webviews.selectedId) {
+          return
+        }
 
-      // avoid suspending tabs that are currently playing audio
-      if (tab.hasAudio) {
-        return
-      }
+        // avoid suspending tabs that are currently playing audio
+        if (tab.hasAudio) {
+          return
+        }
 
-      if (!tab.lastActivity) {
-        return
-      }
+        if (!tab.lastActivity) {
+          return
+        }
 
-      if (now - tab.lastActivity > TAB_SUSPEND_AFTER_MS) {
-        webviews.destroy(tab.id)
-      }
+        if (now - tab.lastActivity > TAB_SUSPEND_AFTER_MS) {
+          webviews.destroy(tab.id)
+        }
+      })
     })
-  })
-}, TAB_SUSPEND_CHECK_INTERVAL_MS)
+  }, TAB_SUSPEND_CHECK_INTERVAL_MS)
+}
 
 ipc.on('captureData', function (e, data) {
   tabs.update(data.id, { previewImage: data.url })
@@ -567,6 +575,19 @@ ipc.on('captureData', function (e, data) {
 ipc.on('windowFocus', function () {
   if (webviews.placeholderRequests.length === 0 && document.activeElement.tagName !== 'INPUT') {
     webviews.focus()
+  }
+})
+
+// ensure webview-related timers are cleaned up when the window is closed
+window.addEventListener('beforeunload', function () {
+  if (webviews.captureIntervalId) {
+    clearInterval(webviews.captureIntervalId)
+    webviews.captureIntervalId = null
+  }
+
+  if (webviews.suspendIntervalId) {
+    clearInterval(webviews.suspendIntervalId)
+    webviews.suspendIntervalId = null
   }
 })
 

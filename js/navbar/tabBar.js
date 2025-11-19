@@ -12,7 +12,7 @@ const tabEditor = require('navbar/tabEditor.js')
 const progressBar = require('navbar/progressBar.js')
 const permissionRequests = require('navbar/permissionRequests.js')
 
-var lastTabDeletion = 0 // TODO get rid of this
+let lastTabDeletion = 0 // TODO get rid of this
 
 const tabBar = {
   navBar: document.getElementById('navbar'),
@@ -28,14 +28,14 @@ const tabBar = {
     return tabBar.getTab(tabId).querySelector('.tab-input')
   },
   setActiveTab: function (tabId) {
-    var activeTab = document.querySelector('.tab-item.active')
+    const activeTab = document.querySelector('.tab-item.active')
 
     if (activeTab) {
       activeTab.classList.remove('active')
       activeTab.removeAttribute('aria-selected')
     }
 
-    var el = tabBar.getTab(tabId)
+    const el = tabBar.getTab(tabId)
     el.classList.add('active')
     el.setAttribute('aria-selected', 'true')
 
@@ -44,7 +44,7 @@ const tabBar = {
     })
   },
   createTab: function (data) {
-    var tabEl = document.createElement('div')
+    const tabEl = document.createElement('div')
     tabEl.className = 'tab-item'
     tabEl.setAttribute('data-tab', data.id)
     tabEl.setAttribute('role', 'tab')
@@ -55,16 +55,16 @@ const tabBar = {
 
     // icons
 
-    var iconArea = document.createElement('span')
+    const iconArea = document.createElement('span')
     iconArea.className = 'tab-icon-area'
 
     if (data.private) {
-      var pbIcon = document.createElement('i')
+      const pbIcon = document.createElement('i')
       pbIcon.className = 'icon-tab-is-private tab-icon tab-info-icon i carbon:view-off'
       iconArea.appendChild(pbIcon)
     }
 
-    var closeTabButton = document.createElement('button')
+    const closeTabButton = document.createElement('button')
     closeTabButton.className = 'tab-icon tab-close-button i carbon:close'
 
     closeTabButton.addEventListener('click', function (e) {
@@ -79,15 +79,15 @@ const tabBar = {
 
     // title
 
-    var titleContainer = document.createElement('div')
+    const titleContainer = document.createElement('div')
     titleContainer.className = 'title-container'
 
-    var title = document.createElement('span')
+    const title = document.createElement('span')
     title.className = 'title'
 
     // URL
 
-    var urlElement = document.createElement('span')
+    const urlElement = document.createElement('span')
     urlElement.className = 'url-element'
 
     titleContainer.appendChild(title)
@@ -139,7 +139,7 @@ const tabBar = {
     return tabEl
   },
   updateTab: function (tabId, tabEl = tabBar.getTab(tabId)) {
-    var tabData = tabs.get(tabId)
+    const tabData = tabs.get(tabId)
 
     // update tab title
     var tabTitle
@@ -155,20 +155,25 @@ const tabBar = {
 
     tabTitle = (tabTitle || l('newTabLabel')).substring(0, 500)
 
-    var titleEl = tabEl.querySelector('.title')
-    titleEl.textContent = tabTitle
+    const titleEl = tabEl.querySelector('.title')
+    if (titleEl.textContent !== tabTitle) {
+      titleEl.textContent = tabTitle
+    }
 
     tabEl.title = tabTitle
     if (tabData.private) {
       tabEl.title += ' (' + l('privateTab') + ')'
     }
 
-    var tabUrl = urlParser.getDomain(tabData.url)
+    let tabUrl = urlParser.getDomain(tabData.url)
     if (tabUrl.startsWith('www.') && tabUrl.split('.').length > 2) {
       tabUrl = tabUrl.replace('www.', '')
     }
 
-    tabEl.querySelector('.url-element').textContent = tabUrl
+    const urlEl = tabEl.querySelector('.url-element')
+    if (urlEl.textContent !== tabUrl) {
+      urlEl.textContent = tabUrl
+    }
 
     if (tabUrl && !urlParser.isInternalURL(tabData.url)) {
       tabEl.classList.add('has-url')
@@ -177,7 +182,7 @@ const tabBar = {
     }
 
     // update tab audio icon
-    var audioButton = tabEl.querySelector('.tab-audio-button')
+    const audioButton = tabEl.querySelector('.tab-audio-button')
     tabAudio.updateButton(tabId, audioButton)
 
     tabEl.querySelectorAll('.permission-request-icon').forEach(el => el.remove())
@@ -186,13 +191,13 @@ const tabBar = {
       tabEl.insertBefore(button, tabEl.children[0])
     })
 
-    var iconArea = tabEl.getElementsByClassName('tab-icon-area')[0]
+    const iconArea = tabEl.getElementsByClassName('tab-icon-area')[0]
 
-    var insecureIcon = tabEl.getElementsByClassName('icon-tab-not-secure')[0]
+    let insecureIcon = tabEl.getElementsByClassName('icon-tab-not-secure')[0]
     if (tabData.secure === true && insecureIcon) {
       insecureIcon.remove()
     } else if (tabData.secure === false && !insecureIcon) {
-      var insecureIcon = document.createElement('i')
+      insecureIcon = document.createElement('i')
       insecureIcon.className = 'icon-tab-not-secure tab-icon tab-info-icon i carbon:unlocked'
       insecureIcon.title = l('connectionNotSecure')
       iconArea.appendChild(insecureIcon)
@@ -202,11 +207,15 @@ const tabBar = {
     empty(tabBar.containerInner)
     tabBar.tabElementMap = {}
 
+    const fragment = document.createDocumentFragment()
+
     tabs.get().forEach(function (tab) {
-      var el = tabBar.createTab(tab)
-      tabBar.containerInner.appendChild(el)
+      const el = tabBar.createTab(tab)
+      fragment.appendChild(el)
       tabBar.tabElementMap[tab.id] = el
     })
+
+    tabBar.containerInner.appendChild(fragment)
 
     if (tabs.getSelected()) {
       tabBar.setActiveTab(tabs.getSelected())
@@ -214,16 +223,16 @@ const tabBar = {
     tabBar.handleSizeChange()
   },
   addTab: function (tabId) {
-    var tab = tabs.get(tabId)
-    var index = tabs.getIndex(tabId)
+    const tab = tabs.get(tabId)
+    const index = tabs.getIndex(tabId)
 
-    var tabEl = tabBar.createTab(tab)
+    const tabEl = tabBar.createTab(tab)
     tabBar.containerInner.insertBefore(tabEl, tabBar.containerInner.childNodes[index])
     tabBar.tabElementMap[tabId] = tabEl
     tabBar.handleSizeChange()
   },
   removeTab: function (tabId) {
-    var tabEl = tabBar.getTab(tabId)
+    const tabEl = tabBar.getTab(tabId)
     if (tabEl) {
       // The tab does not have a corresponding .tab-item element.
       // This happens when destroying tabs from other task where this .tab-item is not present
@@ -265,7 +274,10 @@ const tabBar = {
     })
   },
   handleSizeChange: function () {
-    if (window.innerWidth / tabBar.containerInner.childNodes.length < 190) {
+    const tabCount = tabBar.containerInner.childNodes.length
+    const averageTabWidth = tabCount === 0 ? Infinity : window.innerWidth / tabCount
+
+    if (averageTabWidth < 190) {
       tabBar.container.classList.add('compact-tabs')
     } else {
       tabBar.container.classList.remove('compact-tabs')

@@ -10,6 +10,7 @@ const statistics = require('js/statistics.js')
 const sessionRestore = {
   savePath: window.globalArgs['user-data-path'] + (platformType === 'windows' ? '\\sessionRestore.json' : '/sessionRestore.json'),
   previousState: null,
+  saveIntervalId: null,
   save: function (forceSave, sync) {
     //only one window (the focused one) should be responsible for saving session restore data
     if (!document.body.classList.contains('focused')) {
@@ -229,7 +230,9 @@ const sessionRestore = {
     }
   },
   initialize: function () {
-    setInterval(sessionRestore.save, 30000)
+    if (!sessionRestore.saveIntervalId) {
+      sessionRestore.saveIntervalId = setInterval(sessionRestore.save, 30000)
+    }
 
     window.onbeforeunload = function (e) {
       sessionRestore.save(true, true)
@@ -238,6 +241,12 @@ const sessionRestore = {
       ipc.send('tab-state-change', [
         ['task-updated', tasks.getSelected().id, 'selectedInWindow', null]
       ])
+
+      // ensure timers are cleaned up when the window is closed
+      if (sessionRestore.saveIntervalId) {
+        clearInterval(sessionRestore.saveIntervalId)
+        sessionRestore.saveIntervalId = null
+      }
     }
 
     ipc.on('read-tab-state', function (e) {

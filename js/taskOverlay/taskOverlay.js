@@ -216,6 +216,9 @@ var taskOverlay = {
     taskOverlay.addTabDragging(addTaskButton)
     taskOverlay.addTaskDragging()
 
+    const fragment = document.createDocumentFragment()
+    const tabContainers = []
+
     // show the task elements
     tasks.forEach(function (task, index) {
       const el = createTaskContainer(task, index, {
@@ -230,9 +233,12 @@ var taskOverlay = {
         }
       })
 
-      taskContainer.appendChild(el)
-      taskOverlay.addTabDragging(el.querySelector('.task-tabs-container'))
+      fragment.appendChild(el)
+      tabContainers.push(el.querySelector('.task-tabs-container'))
     })
+
+    taskContainer.appendChild(fragment)
+    tabContainers.forEach(containerEl => taskOverlay.addTabDragging(containerEl))
   },
 
   hide: function () {
