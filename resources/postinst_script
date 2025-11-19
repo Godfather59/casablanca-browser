@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ]; then
+    update-alternatives --install /usr/bin/x-www-browser \
+        x-www-browser /opt/Casablanca/casablanca 80
+    chown root /opt/Casablanca/chrome-sandbox
+    chmod 4755 /opt/Casablanca/chrome-sandbox
+    echo "Run sudo xdg-settings set default-web-browser casablanca.desktop && sudo update-alternatives --config x-www-browser to set Casablanca as your default browser."
+    ln -sf /opt/Casablanca/casablanca /usr/bin/casablanca
+fi
