@@ -1,5 +1,7 @@
 var webviews = require('webviews.js')
 var settings = require('util/settings/settings.js')
+var places = require('places/places.js')
+var urlParser = require('util/urlParser.js')
 
 const colorExtractorImage = document.createElement('img')
 colorExtractorImage.crossOrigin = 'anonymous'
@@ -14,15 +16,30 @@ const defaultColors = {
   darkMode: ['rgb(33, 37, 43)', 'white']
 }
 
+// cache colors loaded from history so we don't query IndexedDB repeatedly
+const siteColorCache = {}
+
+function getColorKey (url) {
+  if (!url) {
+    return null
+  }
+  const sourceURL = urlParser.getSourceURL(url)
+  if (urlParser.isInternalURL(sourceURL)) {
+    return sourceURL
+  }
+  return urlParser.getDomain(sourceURL)
+}
+
 function getHours () {
   const date = new Date()
   return date.getHours() + (date.getMinutes() / 60)
 }
 
 let hours = getHours()
+let hoursIntervalId = null
 
 // we cache the hours so we don't have to query every time we change the color
-setInterval(function () {
+hoursIntervalId = setInterval(function () {
   hours = getHours()
 }, 5 * 60 * 1000)
 
@@ -182,6 +199,45 @@ function setColor (bg, fg, isLowContrast) {
 
 const tabColor = {
   useSiteTheme: true,
+  loadColorFromHistory: function (tabId) {
+    var tab = tabs.get(tabId)
+
+    if (!tab || !tab.url || tab.private) {
+      return
+    }
+
+    var sourceURL = urlParser.removeTextFragment(urlParser.getSourceURL(tab.url))
+    var key = getColorKey(tab.url)
+
+    if (key && siteColorCache[key]) {
+      tabs.update(tabId, {
+        backgroundColor: siteColorCache[key]
+      })
+      if (tabId === tabs.getSelected()) {
+        tabColor.updateColors()
+      }
+      return
+    }
+
+    places.getItem(sourceURL).then(function (item) {
+      if (!item || !item.color) {
+        return
+      }
+
+      if (key) {
+        siteColorCache[key] = item.color
+      }
+      tabs.update(tabId, {
+        backgroundColor: item.color
+      })
+
+      if (tabId === tabs.getSelected()) {
+        tabColor.updateColors()
+      }
+    }).catch(function () {
+      // ignore errors; we'll fall back to computing the color normally
+    })
+  },
   initialize: function () {
     webviews.bindEvent('page-favicon-updated', function (tabId, favicons) {
       tabColor.updateFromImage(favicons, tabId, function () {
@@ -205,18 +261,38 @@ const tabColor = {
      */
     webviews.bindEvent('did-start-navigation', function (tabId, url, isInPlace, isMainFrame, frameProcessId, frameRoutingId) {
       if (isMainFrame) {
+        var currentTab = tabs.get(tabId)
+        var oldKey = currentTab ? getColorKey(currentTab.url) : null
+        var newKey = getColorKey(url)
+
+        // if navigating within the same domain, keep the existing color to avoid flicker
+        if (oldKey && newKey && oldKey === newKey) {
+          tabs.update(tabId, {
+            favicon: null
+          })
+          return
+        }
+
+        var cachedColor = newKey ? siteColorCache[newKey] : null
+
         tabs.update(tabId, {
-          backgroundColor: null,
+          backgroundColor: cachedColor || null,
           favicon: null
         })
+
+        if (tabId === tabs.getSelected()) {
+          tabColor.updateColors()
+        }
       }
     })
 
     /*
-    Always rerender once the page has finished loading
-    this is needed to go back to default colors in case this page doesn't specify one
+    Always rerender once the page has finished loading.
+    Also try to load a cached color from history so we don't have to
+    recompute it for frequently visited sites.
      */
     webviews.bindEvent('did-finish-load', function (tabId) {
+      tabColor.loadColorFromHistory(tabId)
       tabColor.updateColors()
     })
 
@@ -228,6 +304,14 @@ const tabColor = {
     settings.listen('siteTheme', function (value) {
       if (value !== undefined) {
         tabColor.useSiteTheme = value
+      }
+    })
+
+    // clear the cached-hours timer when the window is closed
+    window.addEventListener('beforeunload', function () {
+      if (hoursIntervalId) {
+        clearInterval(hoursIntervalId)
+        hoursIntervalId = null
       }
     })
 
@@ -243,6 +327,17 @@ const tabColor = {
 
     const rgb = getColorFromString(color)
     const rgbAdjusted = adjustColorForTheme(rgb)
+
+    try {
+      var key = getColorKey(tabs.get(tabId).url)
+      if (key) {
+        siteColorCache[key] = {
+          color: getRGBString(rgbAdjusted),
+          textColor: getTextColor(rgbAdjusted),
+          isLowContrast: isLowContrast(rgbAdjusted)
+        }
+      }
+    } catch (e) {}
 
     tabs.update(tabId, {
       themeColor: {
@@ -262,6 +357,17 @@ const tabColor = {
       colorExtractorImage.onload = function (e) {
         const backgroundColor = getColorFromImage(colorExtractorImage)
         const backgroundColorAdjusted = adjustColorForTheme(backgroundColor)
+
+        try {
+          var key = getColorKey(tabs.get(tabId).url)
+          if (key) {
+            siteColorCache[key] = {
+              color: getRGBString(backgroundColorAdjusted),
+              textColor: getTextColor(backgroundColorAdjusted),
+              isLowContrast: isLowContrast(backgroundColorAdjusted)
+            }
+          }
+        } catch (e) {}
 
         tabs.update(tabId, {
           backgroundColor: {

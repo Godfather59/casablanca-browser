@@ -41,6 +41,24 @@ let isInstallerRunning = false
 const isDevelopmentMode = process.argv.some(arg => arg === '--development-mode')
 const isDebuggingEnabled = process.argv.some(arg => arg === '--debug-browser')
 
+function generateRandomUserAgent () {
+  const chromeMajorVersions = [122, 123, 124, 125, 126, 127]
+  const chromeMajor = chromeMajorVersions[Math.floor(Math.random() * chromeMajorVersions.length)]
+
+  const osPart = (function () {
+    if (process.platform === 'win32') {
+      return 'Windows NT 10.0; Win64; x64'
+    }
+    if (process.platform === 'darwin') {
+      // keep a common macOS version string so the UA looks realistic
+      return 'Macintosh; Intel Mac OS X 10_15_7'
+    }
+    return 'X11; Linux x86_64'
+  })()
+
+  return `Mozilla/5.0 (${osPart}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeMajor}.0.0.0 Safari/537.36`
+}
+
 function clamp (n, min, max) {
   return Math.max(Math.min(n, max), min)
 }
@@ -74,6 +92,12 @@ var userDataPath = app.getPath('userData')
 // initialize settings as early as possible, but avoid doing other
 // heavy work here so startup stays fast
 settings.initialize(userDataPath)
+
+// apply fingerprint randomization options that must be set very early
+if (settings.get('fingerprintRandomizationEnabled') !== false) {
+  // Use a randomized but realistic Chrome desktop UA for this run.
+  app.userAgentFallback = generateRandomUserAgent()
+}
 
 if (settings.get('userSelectedLanguage')) {
   app.commandLine.appendSwitch('lang', settings.get('userSelectedLanguage'))
@@ -240,7 +264,8 @@ function createWindowWithBounds (bounds, customArgs) {
         '--window-id=' + windows.nextId,
         ...((windows.getAll().length === 0 ? ['--initial-window'] : [])),
         ...(windows.hasEverCreatedWindow ? [] : ['--launch-window']),
-        ...(customArgs.initialTask ? ['--initial-task=' + customArgs.initialTask] : [])
+        ...(customArgs.initialTask ? ['--initial-task=' + customArgs.initialTask] : []),
+        '--fingerprint-randomization=' + (settings.get('fingerprintRandomizationEnabled') !== false)
       ]
     }
   })

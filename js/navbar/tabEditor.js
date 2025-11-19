@@ -125,6 +125,13 @@ const tabEditor = {
       }
     })
 
+    // hide the URL editor when it loses focus (for example, when clicking on the page)
+    tabEditor.input.addEventListener('blur', function () {
+      if (tabEditor.isShown) {
+        tabEditor.hide()
+      }
+    })
+
     document.getElementById('webviews').addEventListener('click', function () {
       tabEditor.hide()
     })

@@ -106,6 +106,11 @@
       </div>
 
       <div id="content-type-blocking"></div>
+
+      <div class="setting-section">
+        <input type="checkbox" id="checkbox-fingerprint-randomization" />
+        <label for="checkbox-fingerprint-randomization" data-string="fingerprintRandomization"></label>
+      </div>
     </div>
 
     <div class="settings-container" id="appearance-settings-container">
@@ -247,6 +252,28 @@
 			<input type="checkbox" id="checkbox-enable-autoplay">
 			<label for="checkbox-enable-autoplay" data-string="settingsAutoplayToggle"></label>
 		</div>
+
+      <div class="setting-section" id="section-new-tab-behavior">
+        <label data-string="newTabBehaviorHeading"></label>
+        <div class="setting-option">
+          <input type="radio" name="newTabBehavior" id="new-tab-default" value="default" />
+          <label for="new-tab-default" data-string="newTabBehaviorDefault"></label>
+        </div>
+        <div class="setting-option">
+          <input type="radio" name="newTabBehavior" id="new-tab-blank" value="blank" />
+          <label for="new-tab-blank" data-string="newTabBehaviorBlank"></label>
+        </div>
+        <div class="setting-option">
+          <input type="radio" name="newTabBehavior" id="new-tab-home" value="home" />
+          <label for="new-tab-home" data-string="newTabBehaviorHome"></label>
+          <input
+            type="text"
+            id="home-page-url"
+            placeholder="https://example.com/"
+            style="margin-left: 0.5em; min-width: 280px"
+          />
+        </div>
+      </div>
     </div>
 
     <div class="settings-container" id="search-engine-settings-container">

@@ -1,3 +1,5 @@
+/* global DOMParser */
+
 /* Handles importing / exporting bookmarks to HTML */
 
 const places = require('places/places.js')

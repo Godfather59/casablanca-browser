@@ -363,71 +363,7 @@ var taskOverlay = {
     })
   },
   initialize: function () {
-    this.initializeSearch()
-
-    keyboardNavigationHelper.addToGroup('taskOverlay', taskOverlay.overlayElement)
-
-    // swipe down on the tabstrip to show the task overlay
-    document.getElementById('navbar').addEventListener('wheel', function (e) {
-      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) {
-        // https://github.com/minbrowser/min/issues/698
-        return
-      }
-      if (e.deltaY < -30 && e.deltaX < 10) {
-        taskOverlay.show()
-        e.stopImmediatePropagation()
-      }
-    })
-
-    keybindings.defineShortcut('toggleTasks', function () {
-      if (taskOverlay.isShown) {
-        taskOverlay.hide()
-      } else {
-        taskOverlay.show()
-      }
-    })
-
-    keybindings.defineShortcut({ keys: 'esc' }, function (e) {
-      taskOverlay.hide()
-    })
-
-    keybindings.defineShortcut('enterEditMode', function (e) {
-      taskOverlay.hide()
-    })
-
-    keybindings.defineShortcut('closeTab', function (e) {
-      var focusedTab = (document.querySelector('.task-tab-item.fakefocus') || document.activeElement)
-      if (focusedTab && focusedTab.getAttribute('data-tab')) {
-        deleteTabFromOverlay(focusedTab)
-        focusedTab.remove()
-      }
-    }, { contexts: ['taskOverlay'] })
-
-    keybindings.defineShortcut('addTask', addTaskFromMenu)
-    ipcRenderer.on('addTask', addTaskFromMenu) // for menu item
-
-    taskSwitcherButton.title = l('viewTasks')
-    addTaskLabel.textContent = l('newTask')
-
-    taskSwitcherButton.addEventListener('click', function () {
-      taskOverlay.toggle()
-    })
-
-    addTaskButton.addEventListener('click', function (e) {
-      browserUI.addTask()
-      taskOverlay.hide()
-      tabEditor.show(tabs.getSelected())
-    })
-
-    taskOverlayNavbar.addEventListener('click', function () {
-      taskOverlay.hide()
-    })
-
-    tasks.on('state-sync-change', function () {
-      if (taskOverlay.isShown) {
-        taskOverlay.render()
-      }
-    })
+    // task overlay is disabled
   }
 }
 

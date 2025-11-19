@@ -15,8 +15,8 @@ function getDefaultViewWebPreferences () {
       safeDialogs: true,
       safeDialogsMessage: 'Prevent this page from creating additional dialogs',
       preload: __dirname + '/dist/preload.js',
-      contextIsolation: true,
-      sandbox: true,
+      contextIsolation: false,
+      sandbox: false,
       enableRemoteModule: false,
       allowPopups: false,
       // partition: partition || 'persist:webcontent',
@@ -388,17 +388,12 @@ ipc.on('callViewMethod', function (e, data) {
   var error, result
   try {
     var webContents = viewMap[data.id].webContents
-    // Handle navigation history helpers using the new API
-    if (data.method === 'canGoBack' || data.method === 'canGoForward') {
-      const history = webContents.navigationHistory
-      if (history && typeof history[data.method] === 'function') {
-        result = history[data.method].apply(history, data.args)
-      } else if (typeof webContents[data.method] === 'function') {
-        // Fallback for older Electron versions
-        result = webContents[data.method].apply(webContents, data.args)
-      } else {
-        result = false
-      }
+    const history = webContents.navigationHistory
+
+    // Prefer the new navigationHistory API for navigation helpers to avoid deprecation warnings.
+    const historyMethods = ['canGoBack', 'canGoForward', 'goBack', 'goForward']
+    if (history && historyMethods.includes(data.method) && typeof history[data.method] === 'function') {
+      result = history[data.method].apply(history, data.args)
     } else {
       var methodOrProp = webContents[data.method]
       if (methodOrProp instanceof Function) {

@@ -5,6 +5,9 @@ var settings = require('util/settings/settings.js')
 var searchbarPlugins = require('searchbar/searchbarPlugins.js')
 var compareVersions = require('util/compareVersions.js')
 
+var updateTimeoutId = null
+var updateIntervalId = null
+
 function getUpdateRandomNum () {
   /* the update JSON might indicate that the update is only available to a % of clients, in order to avoid notifying everyone to update to a new version until there's time to report bugs.
       Create a random number that is saved locally, and compare this to the indicated % to determine if the update notification should be shown. */
@@ -54,8 +57,8 @@ function showUpdateNotification (text, input, inputFlags) {
   }
 }
 
-setTimeout(getAvailableUpdates, 30000)
-setInterval(getAvailableUpdates, 24 * 60 * 60 * 1000)
+updateTimeoutId = setTimeout(getAvailableUpdates, 30000)
+updateIntervalId = setInterval(getAvailableUpdates, 24 * 60 * 60 * 1000)
 
 function initialize () {
   searchbarPlugins.register('updateNotifications', {
@@ -64,6 +67,19 @@ function initialize () {
       return !text && performance.now() > 5000
     },
     showResults: showUpdateNotification
+  })
+
+  // clear update timers when the window is closed
+  window.addEventListener('beforeunload', function () {
+    if (updateTimeoutId) {
+      clearTimeout(updateTimeoutId)
+      updateTimeoutId = null
+    }
+
+    if (updateIntervalId) {
+      clearInterval(updateIntervalId)
+      updateIntervalId = null
+    }
   })
 }
 

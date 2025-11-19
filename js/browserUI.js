@@ -10,6 +10,7 @@ var focusMode = require('focusMode.js')
 var tabBar = require('navbar/tabBar.js')
 var tabEditor = require('navbar/tabEditor.js')
 var searchbar = require('searchbar/searchbar.js')
+var tabColor = require('navbar/tabColor.js')
 
 /* creates a new task */
 
@@ -33,6 +34,8 @@ options
   options.openInBackground - whether to open the tab without switching to it. Defaults to false.
 */
 function addTab (tabId = tabs.add(), options = {}) {
+  const behavior = settings.get('newTabBehavior') || {}
+
   /*
   adding a new tab should destroy the current one if either:
   * The current tab is an empty, non-private tab, and the new tab is private
@@ -47,6 +50,35 @@ function addTab (tabId = tabs.add(), options = {}) {
   webviews.add(tabId)
 
   if (!options.openInBackground) {
+    const wasEmpty = !tabs.get(tabId).url
+
+    // apply new-tab behavior for tabs created without a predefined URL
+    if (wasEmpty) {
+      if (behavior.mode === 'blank') {
+        // leave tab empty
+      } else if (behavior.mode === 'home' && behavior.homeUrl) {
+        tabs.update(tabId, { url: behavior.homeUrl })
+        webviews.update(tabId, behavior.homeUrl)
+      } else {
+        // default: new tab page
+        const ntpURL = urlParser.parse('min://newtab')
+        tabs.update(tabId, { url: ntpURL })
+        webviews.update(tabId, ntpURL)
+      }
+    }
+
+    // when opening the configured home page, don't enter edit mode automatically
+    if (wasEmpty && behavior.mode === 'home') {
+      options.enterEditMode = false
+    }
+
+    // try to apply a cached color before the page finishes loading
+    if (wasEmpty && behavior.mode === 'home') {
+      try {
+        tabColor.loadColorFromHistory(tabId)
+      } catch (e) {}
+    }
+
     switchToTab(tabId, {
       focusWebview: options.enterEditMode === false
     })

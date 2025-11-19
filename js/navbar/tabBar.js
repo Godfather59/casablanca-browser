@@ -106,31 +106,19 @@ const tabBar = {
       }
     })
 
-    tabEl.addEventListener('auxclick', function (e) {
-      if (e.which === 2) { // if mouse middle click -> close tab
-        tabBar.events.emit('tab-closed', data.id)
+    // prevent middle-click from triggering autoscroll and let auxclick handle closing
+    tabEl.addEventListener('mousedown', function (e) {
+      if (e.button === 1) {
+        e.preventDefault()
+        e.stopPropagation()
       }
     })
 
-    tabEl.addEventListener('wheel', function (e) {
-      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) {
-        // https://github.com/minbrowser/min/issues/698
-        return
-      }
-      if (e.deltaY > 65 && e.deltaX < 10 && Date.now() - lastTabDeletion > 900) { // swipe up to delete tabs
-        lastTabDeletion = Date.now()
-
-        /* tab deletion is disabled in focus mode */
-        if (focusMode.enabled()) {
-          focusMode.warn()
-          return
-        }
-
-        this.style.transform = 'translateY(-100%)'
-
-        setTimeout(function () {
-          tabBar.events.emit('tab-closed', data.id)
-        }, 150) // wait until the animation has completed
+    tabEl.addEventListener('auxclick', function (e) {
+      if (e.button === 1 || e.which === 2) { // middle click -> close tab
+        e.preventDefault()
+        e.stopPropagation()
+        tabBar.events.emit('tab-closed', data.id)
       }
     })
 

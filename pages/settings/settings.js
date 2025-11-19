@@ -11,6 +11,11 @@ var openTabsInForegroundCheckbox = document.getElementById('checkbox-open-tabs-i
 var autoPlayCheckbox = document.getElementById('checkbox-enable-autoplay')
 var userAgentCheckbox = document.getElementById('checkbox-user-agent')
 var userAgentInput = document.getElementById('input-user-agent')
+var fingerprintRandomizationCheckbox = document.getElementById('checkbox-fingerprint-randomization')
+var newTabBehaviorDefaultRadio = document.getElementById('new-tab-default')
+var newTabBehaviorBlankRadio = document.getElementById('new-tab-blank')
+var newTabBehaviorHomeRadio = document.getElementById('new-tab-home')
+var homePageUrlInput = document.getElementById('home-page-url')
 
 function showRestartRequiredBanner () {
   banner.hidden = false
@@ -117,6 +122,52 @@ blockingExceptionsInput.addEventListener('input', function () {
     settings.set('filtering', value)
   })
 })
+
+/* fingerprint randomization setting */
+
+settings.get('fingerprintRandomizationEnabled', function (value) {
+  // default to on if not set
+  if (value === undefined) {
+    fingerprintRandomizationCheckbox.checked = true
+  } else {
+    fingerprintRandomizationCheckbox.checked = !!value
+  }
+})
+
+fingerprintRandomizationCheckbox.addEventListener('change', function () {
+  settings.set('fingerprintRandomizationEnabled', this.checked)
+})
+
+/* new tab behavior setting */
+
+settings.get('newTabBehavior', function (value) {
+  var behavior = (value && value.mode) || 'default'
+  var homeUrl = (value && value.homeUrl) || ''
+
+  newTabBehaviorDefaultRadio.checked = (behavior === 'default')
+  newTabBehaviorBlankRadio.checked = (behavior === 'blank')
+  newTabBehaviorHomeRadio.checked = (behavior === 'home')
+
+  homePageUrlInput.value = homeUrl
+})
+
+function saveNewTabBehavior () {
+  var mode = 'default'
+  if (newTabBehaviorBlankRadio.checked) {
+    mode = 'blank'
+  } else if (newTabBehaviorHomeRadio.checked) {
+    mode = 'home'
+  }
+
+  var homeUrl = homePageUrlInput.value.trim()
+
+  settings.set('newTabBehavior', { mode: mode, homeUrl: homeUrl })
+}
+
+newTabBehaviorDefaultRadio.addEventListener('change', saveNewTabBehavior)
+newTabBehaviorBlankRadio.addEventListener('change', saveNewTabBehavior)
+newTabBehaviorHomeRadio.addEventListener('change', saveNewTabBehavior)
+homePageUrlInput.addEventListener('change', saveNewTabBehavior)
 
 /* content type settings */
 

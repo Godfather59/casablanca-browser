@@ -4,6 +4,7 @@ var tabBar = require('navbar/tabBar.js')
 
 var tabActivity = {
   minFadeAge: 330000,
+  intervalId: null,
   refresh: function () {
     requestAnimationFrame(function () {
       var tabSet = tabs.get()
@@ -24,9 +25,19 @@ var tabActivity = {
     })
   },
   initialize: function () {
-    setInterval(tabActivity.refresh, 7500)
+    if (!tabActivity.intervalId) {
+      tabActivity.intervalId = setInterval(tabActivity.refresh, 7500)
+    }
 
     tasks.on('tab-selected', this.refresh)
+
+    // clear the activity timer when this renderer window is closed
+    window.addEventListener('beforeunload', function () {
+      if (tabActivity.intervalId) {
+        clearInterval(tabActivity.intervalId)
+        tabActivity.intervalId = null
+      }
+    })
   }
 }
 
