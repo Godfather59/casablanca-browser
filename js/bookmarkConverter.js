@@ -2,6 +2,8 @@
 
 /* Handles importing / exporting bookmarks to HTML */
 
+const { ipcRenderer } = require('electron')
+const webviews = require('webviews.js')
 const places = require('places/places.js')
 const urlParser = require('util/urlParser.js')
 const settings = require('util/settings/settings.js')
@@ -98,6 +100,26 @@ const bookmarkConverter = {
     })
   },
 
+  openImportDialog: async function () {
+    const filePath = await ipcRenderer.invoke('showOpenDialog', {
+      filters: [
+        { name: 'HTML files', extensions: ['htm', 'html'] }
+      ]
+    })
+
+    if (!filePath || !filePath[0]) {
+      return
+    }
+
+    fs.readFile(filePath[0], 'utf-8', function (err, data) {
+      if (err || !data) {
+        console.warn(err)
+        return
+      }
+      bookmarkConverter.import(data)
+    })
+  },
+
   initialize: function () {
     // how often to create a new backup file
     const interval = (3 * 24 * 60 * 60 * 1000)
@@ -139,6 +161,11 @@ const bookmarkConverter = {
 
     bookmarkConverter.backupTimeoutId = setTimeout(checkAndExport, 10000)
     bookmarkConverter.backupIntervalId = setInterval(checkAndExport, interval / 3)
+
+    // allow internal pages (settings) to trigger import via webviews IPC
+    webviews.bindIPC('importBookmarks', function () {
+      bookmarkConverter.openImportDialog()
+    })
   },
 
   stopAutomaticBackups: function () {

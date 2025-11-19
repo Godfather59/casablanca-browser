@@ -1,7 +1,20 @@
 ipc.on('open-context-menu', function (e, data) {
   var menu = new Menu()
 
-  data.template.forEach(function (section) {
+  // Support both [ [items...] ] and flat [items...] templates
+  var template = data.template
+
+  if (!Array.isArray(template)) {
+    template = [[template]]
+  } else if (!Array.isArray(template[0])) {
+    template = [template]
+  }
+
+  template.forEach(function (section, sectionIndex) {
+    if (!Array.isArray(section)) {
+      section = [section]
+    }
+
     section.forEach(function (item) {
       var id = item.click
       item.click = function () {
@@ -18,7 +31,11 @@ ipc.on('open-context-menu', function (e, data) {
       }
       menu.append(new MenuItem(item))
     })
-    menu.append(new MenuItem({ type: 'separator' }))
+
+    // Avoid an extra trailing separator
+    if (sectionIndex !== template.length - 1) {
+      menu.append(new MenuItem({ type: 'separator' }))
+    }
   })
   menu.on('menu-will-close', function () {
     e.sender.send('context-menu-will-close', { menuId: data.id })

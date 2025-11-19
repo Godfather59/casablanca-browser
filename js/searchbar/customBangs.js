@@ -327,23 +327,8 @@ function initialize () {
     snippet: l('importBookmarks'),
     icon: 'carbon:upload',
     isAction: true,
-    fn: async function () {
-      const filePath = await ipc.invoke('showOpenDialog', {
-        filters: [
-          { name: 'HTML files', extensions: ['htm', 'html'] }
-        ]
-      })
-
-      if (!filePath) {
-        return
-      }
-      fs.readFile(filePath[0], 'utf-8', function (err, data) {
-        if (err || !data) {
-          console.warn(err)
-          return
-        }
-        bookmarkConverter.import(data)
-      })
+    fn: function () {
+      bookmarkConverter.openImportDialog()
     }
   })
 

@@ -54,12 +54,56 @@ module.exports = {
       tabEditor.show(tabs.getSelected())
     })
 
-    ipc.on('showBookmarks', function () {
-      tabEditor.show(tabs.getSelected(), '!bookmarks ')
-    })
+    ipc.on('openBookmarksMenu', async function () {
+      // Build a dropdown menu of bookmarks, similar to other browsers.
+      const items = await places.getAllItems()
+      const bookmarks = items
+        .filter(item => item.isBookmarked)
+        .sort((a, b) => b.lastVisit - a.lastVisit)
+        .slice(0, 20)
 
-    ipc.on('showHistory', function () {
-      tabEditor.show(tabs.getSelected(), '!history ')
+      const menuItems = bookmarks.map(function (item) {
+        const title = item.title || urlParser.basicURL(urlParser.getSourceURL(item.url))
+        return {
+          label: title,
+          click: function () {
+            webviews.update(tabs.getSelected(), urlParser.getSourceURL(item.url))
+          }
+        }
+      })
+
+      const sections = []
+
+      if (menuItems.length === 0) {
+        sections.push([{
+          label: l('searchBookmarks'),
+          enabled: false
+        }])
+      } else {
+        sections.push(menuItems)
+      }
+
+      // always offer a way to open the full bookmarks manager
+      sections.push([{
+        label: 'Bookmarks Manager…',
+        click: function () {
+          var newTab = tabs.add({
+            url: 'min://app/pages/bookmarks/index.html'
+          })
+          browserUI.addTab(newTab, { enterEditMode: false })
+        }
+      }])
+
+      // anchor the dropdown under the menu button
+      var menuButton = document.getElementById('menu-button')
+      if (!menuButton) {
+        remoteMenu.open(sections, 0, 0)
+        return
+      }
+      var rect = menuButton.getBoundingClientRect()
+      var x = Math.round(rect.left)
+      var y = Math.round(rect.bottom)
+      remoteMenu.open(sections, x, y)
     })
 
     ipc.on('addTab', function (e, data) {

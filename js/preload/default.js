@@ -285,4 +285,8 @@ window.addEventListener('message', function (e) {
   if (e.data?.message === 'downloadFile') {
     ipc.send('downloadFile', e.data.url)
   }
+
+  if (e.data?.message === 'importBookmarks') {
+    ipc.send('importBookmarks')
+  }
 })

@@ -182,11 +182,14 @@ const bookmarkManager = {
     bangsPlugin.registerCustomBang({
       phrase: '!bookmarks',
       snippet: l('searchBookmarks'),
-      isAction: false,
+      isAction: true,
       showSuggestions: bookmarkManager.showBookmarks,
       fn: function (text) {
         var parsedText = parseBookmarkSearch(text)
         if (!parsedText.text) {
+          // no search text: open bookmark manager UI in the searchbar
+          searchbar.show(tabEditor.input)
+          bookmarkManager.showBookmarks('', tabEditor.input, null)
           return
         }
         places.searchPlaces(parsedText.text, { searchBookmarks: true })
