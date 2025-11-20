@@ -11,7 +11,6 @@ var openTabsInForegroundCheckbox = document.getElementById('checkbox-open-tabs-i
 var autoPlayCheckbox = document.getElementById('checkbox-enable-autoplay')
 var userAgentCheckbox = document.getElementById('checkbox-user-agent')
 var userAgentInput = document.getElementById('input-user-agent')
-var fingerprintRandomizationCheckbox = document.getElementById('checkbox-fingerprint-randomization')
 var newTabBehaviorDefaultRadio = document.getElementById('new-tab-default')
 var newTabBehaviorBlankRadio = document.getElementById('new-tab-blank')
 var newTabBehaviorHomeRadio = document.getElementById('new-tab-home')
@@ -121,21 +120,6 @@ blockingExceptionsInput.addEventListener('input', function () {
     value.exceptionDomains = newValue
     settings.set('filtering', value)
   })
-})
-
-/* fingerprint randomization setting */
-
-settings.get('fingerprintRandomizationEnabled', function (value) {
-  // default to on if not set
-  if (value === undefined) {
-    fingerprintRandomizationCheckbox.checked = true
-  } else {
-    fingerprintRandomizationCheckbox.checked = !!value
-  }
-})
-
-fingerprintRandomizationCheckbox.addEventListener('change', function () {
-  settings.set('fingerprintRandomizationEnabled', this.checked)
 })
 
 /* new tab behavior setting */

@@ -14,6 +14,9 @@ const hasSeparateTitlebar = settings.get('useSeparateTitlebar')
 let windowIsMaximized = false // affects navbar height on Windows
 let windowIsFullscreen = false
 
+// track tabs that have already been auto-reloaded on YouTube watch pages
+const youtubeReloadedTabs = {}
+
 function captureCurrentTab (options) {
   if (tabs.get(tabs.getSelected()).private) {
     // don't capture placeholders for private tabs
@@ -58,6 +61,23 @@ function onNavigate (tabId, url, isInPlace, isMainFrame, frameProcessId, frameRo
 
 // called whenever the page finishes loading
 function onPageLoad (tabId) {
+  // workaround: occasionally YouTube returns a 403 for videoplayback
+  // on the first load but succeeds after a reload. Automatically
+  // reload YouTube watch pages once per tab to avoid a blank player.
+  try {
+    if (!youtubeReloadedTabs[tabId]) {
+      const tab = tabs.get(tabId)
+      if (tab && tab.url) {
+        const src = urlParser.getSourceURL(tab.url)
+        const u = new URL(src)
+        if (u.hostname && u.hostname.endsWith('youtube.com') && u.pathname === '/watch') {
+          youtubeReloadedTabs[tabId] = true
+          webviews.callAsync(tabId, 'reloadIgnoringCache')
+        }
+      }
+    }
+  } catch (e) { }
+
   // capture a preview image if a new page has been loaded
   if (tabId === tabs.getSelected()) {
     setTimeout(function () {

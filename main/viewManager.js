@@ -5,6 +5,8 @@ var temporaryPopupViews = {} // id: view
 
 // rate limit on "open in app" requests
 var globalLaunchRequests = 0
+const externalProtocolPromptCounts = new Map()
+const allowedExternalProtocols = ['mailto', 'tel', 'sms']
 
 function getDefaultViewWebPreferences () {
   return (
@@ -15,7 +17,7 @@ function getDefaultViewWebPreferences () {
       safeDialogs: true,
       safeDialogsMessage: 'Prevent this page from creating additional dialogs',
       preload: __dirname + '/dist/preload.js',
-      contextIsolation: false,
+      contextIsolation: true,
       sandbox: false,
       enableRemoteModule: false,
       allowPopups: false,
@@ -176,10 +178,27 @@ function createView (existingViewId, id, webPreferences, boundsString, events) {
 
   function handleExternalProtocol (e, url, isInPlace, isMainFrame, frameProcessId, frameRoutingId) {
     var knownProtocols = ['http', 'https', 'file', 'min', 'about', 'data', 'javascript', 'chrome'] // TODO anything else?
-    if (!knownProtocols.includes(url.split(':')[0])) {
+    const protocol = url.split(':')[0]
+
+    if (allowedExternalProtocols.includes(protocol)) {
+      electron.shell.openExternal(url)
+      return
+    }
+
+    if (!knownProtocols.includes(protocol)) {
       var externalApp = app.getApplicationNameForProtocol(url)
       if (externalApp) {
         var sanitizedName = externalApp.replace(/[^a-zA-Z0-9.]/g, '')
+
+        const promptKey = sanitizedName + ':' + protocol
+        const now = Date.now()
+        const recentPrompt = externalProtocolPromptCounts.get(promptKey)
+        if (!recentPrompt || now - recentPrompt > 30000) {
+          externalProtocolPromptCounts.set(promptKey, now)
+        } else {
+          return
+        }
+
         if (globalLaunchRequests < 2) {
           globalLaunchRequests++
           setTimeout(function () {

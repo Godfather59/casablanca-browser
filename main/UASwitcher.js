@@ -13,6 +13,17 @@ if (settings.get('customUserAgent')) {
 }
 app.userAgentFallback = newUserAgent
 
+// try to infer the Chrome major version from the UA string, so that
+// SEC-CH-UA is consistent with the reported user agent when a custom
+// UA is configured.
+let customChromeMajor = null
+if (hasCustomUserAgent && newUserAgent) {
+  const m = newUserAgent.match(/Chrome\/(\d+)/)
+  if (m && m[1]) {
+    customChromeMajor = m[1]
+  }
+}
+
 function getFirefoxUA () {
   const rootUAs = {
     mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:FXVERSION.0) Gecko/20100101 Firefox/FXVERSION.0',
@@ -56,7 +67,7 @@ function enableGoogleUASwitcher (ses) {
       }
     }
 
-    const chromiumVersion = process.versions.chrome.split('.')[0]
+    const chromiumVersion = (customChromeMajor || process.versions.chrome.split('.')[0])
     details.requestHeaders['SEC-CH-UA'] = `"Chromium";v="${chromiumVersion}", " Not A;Brand";v="99"`
     details.requestHeaders['SEC-CH-UA-MOBILE'] = '?0'
 

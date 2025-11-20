@@ -1,17 +1,14 @@
 ## Usage statistics collection in Casablanca
 
-By default, Casablanca sends some statistics about how it's used. Currently, these include:
+Usage statistic uploads are **disabled by default** in this build. When disabled, Casablanca clears saved identifiers and does not start any background timers or network requests.
 
-* Your operating system and computer language
-* When you installed Casablanca
-* The version of Casablanca that you're using
-* How often you use certain features in Casablanca
-* An anonymous ID representing your installation of Casablanca
+If you explicitly opt in (by setting `collectUsageStats` to `true` in `settings.json`), the browser will only send anonymized, aggregate data:
 
-Collecting this data allows us to prioritize which devices and operating systems we test and which features we work on.
+* Your operating system and language
+* The Casablanca version and install time
+* Anonymous feature usage counters
+* A random installation identifier (not tied to browsing data)
 
-Casablanca does not send:
+Casablanca never sends:
+* Any browsing history, passwords, or other data stored locally
 * Anything that can be used to personally identify you
-* Any browsing history, passwords, or other data stored locally in Casablanca
-
-If you want to opt-out of statistics collection, you can do so by going to the preferences page within Casablanca and de-selecting "send usage statistics".

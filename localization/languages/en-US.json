@@ -26,6 +26,7 @@
     "pasteAndMatchStyle": "Paste and Match Style",
     "goBack": "Go Back",
     "goForward": "Go Forward",
+    "reloadPage": "Reload Page",
     "inspectElement": "Inspect Element",
     "translatePage": "Translate Page",
     /* searchbar */
@@ -47,7 +48,6 @@
     "enableBlocking": "Enable content blocking for this site",
     "disableBlocking": "Disable content blocking for this site",
     "clearHistoryConfirmation": "Clear all history and browsing data?",
-    "fingerprintRandomization": "Randomize fingerprint (may break some sites)",
     "newTabBehaviorHeading": "New tab behavior",
     "newTabBehaviorDefault": "Show default new tab page",
     "newTabBehaviorBlank": "Show a blank page",

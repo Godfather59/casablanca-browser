@@ -41,24 +41,6 @@ let isInstallerRunning = false
 const isDevelopmentMode = process.argv.some(arg => arg === '--development-mode')
 const isDebuggingEnabled = process.argv.some(arg => arg === '--debug-browser')
 
-function generateRandomUserAgent () {
-  const chromeMajorVersions = [122, 123, 124, 125, 126, 127]
-  const chromeMajor = chromeMajorVersions[Math.floor(Math.random() * chromeMajorVersions.length)]
-
-  const osPart = (function () {
-    if (process.platform === 'win32') {
-      return 'Windows NT 10.0; Win64; x64'
-    }
-    if (process.platform === 'darwin') {
-      // keep a common macOS version string so the UA looks realistic
-      return 'Macintosh; Intel Mac OS X 10_15_7'
-    }
-    return 'X11; Linux x86_64'
-  })()
-
-  return `Mozilla/5.0 (${osPart}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeMajor}.0.0.0 Safari/537.36`
-}
-
 function clamp (n, min, max) {
   return Math.max(Math.min(n, max), min)
 }
@@ -93,12 +75,6 @@ var userDataPath = app.getPath('userData')
 // heavy work here so startup stays fast
 settings.initialize(userDataPath)
 
-// apply fingerprint randomization options that must be set very early
-if (settings.get('fingerprintRandomizationEnabled') !== false) {
-  // Use a randomized but realistic Chrome desktop UA for this run.
-  app.userAgentFallback = generateRandomUserAgent()
-}
-
 if (settings.get('userSelectedLanguage')) {
   app.commandLine.appendSwitch('lang', settings.get('userSelectedLanguage'))
 }
@@ -110,10 +86,14 @@ var secondaryMenu = null
 var isFocusMode = false
 var appIsReady = false
 
-// Always allow self-signed / invalid TLS certificates.
-// WARNING: this disables TLS certificate validation and
-// should only be used in trusted environments.
+const allowInvalidCerts = isDevelopmentMode || process.env.CASABLANCA_ALLOW_INVALID_CERTS === '1'
+
+// Reject invalid TLS certificates by default. Allow only in dev or when explicitly enabled.
 app.on('certificate-error', function (event, webContents, url, error, certificate, callback) {
+  if (!allowInvalidCerts) {
+    callback(false)
+    return
+  }
   event.preventDefault()
   callback(true)
 })
@@ -264,8 +244,7 @@ function createWindowWithBounds (bounds, customArgs) {
         '--window-id=' + windows.nextId,
         ...((windows.getAll().length === 0 ? ['--initial-window'] : [])),
         ...(windows.hasEverCreatedWindow ? [] : ['--launch-window']),
-        ...(customArgs.initialTask ? ['--initial-task=' + customArgs.initialTask] : []),
-        '--fingerprint-randomization=' + (settings.get('fingerprintRandomizationEnabled') !== false)
+        ...(customArgs.initialTask ? ['--initial-task=' + customArgs.initialTask] : [])
       ]
     }
   })
@@ -404,6 +383,19 @@ app.on('ready', function () {
   }
 
   registerBundleProtocol(session.defaultSession)
+
+  // Enforce a CSP on internal pages served from the bundled app protocol.
+  const internalCSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; script-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'self'"
+  session.defaultSession.webRequest.onHeadersReceived(function (details, callback) {
+    if (details.url && details.url.startsWith('min://app/')) {
+      const responseHeaders = Object.assign({}, details.responseHeaders, {
+        'Content-Security-Policy': [internalCSP]
+      })
+      callback({ responseHeaders })
+      return
+    }
+    callback({ responseHeaders: details.responseHeaders })
+  })
 
   const newWin = createWindow()
 

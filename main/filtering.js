@@ -10,6 +10,14 @@ var enabledFilteringOptions = {
   exceptionDomains: []
 }
 
+// domains that should always be exempt from filtering to avoid
+// breaking core functionality on some popular sites
+var builtinExceptionDomains = [
+  'youtube.com',
+  'youtube-nocookie.com',
+  'googlevideo.com'
+]
+
 const globalParamsToRemove = [
   // microsoft
   'msclkid',
@@ -120,7 +128,13 @@ function requestIsThirdParty (baseDomain, requestURL) {
 }
 
 function requestDomainIsException (domain) {
-  return enabledFilteringOptions.exceptionDomains.includes(removeWWW(domain))
+  var normalized = removeWWW(domain)
+
+  if (builtinExceptionDomains.includes(normalized)) {
+    return true
+  }
+
+  return enabledFilteringOptions.exceptionDomains.includes(normalized)
 }
 
 function filterPopups (url) {
