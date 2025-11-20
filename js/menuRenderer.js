@@ -54,6 +54,20 @@ module.exports = {
       tabEditor.show(tabs.getSelected())
     })
 
+    ipc.on('showBookmarks', function () {
+      const newTab = tabs.add({
+        url: 'min://app/pages/bookmarks/index.html'
+      })
+      browserUI.addTab(newTab, { enterEditMode: false })
+    })
+
+    ipc.on('showHistory', function () {
+      const newTab = tabs.add({
+        url: 'min://app/pages/history/index.html'
+      })
+      browserUI.addTab(newTab, { enterEditMode: false })
+    })
+
     ipc.on('openBookmarksMenu', async function () {
       // Build a dropdown menu of bookmarks, similar to other browsers.
       const items = await places.getAllItems()

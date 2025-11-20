@@ -3,6 +3,10 @@
 var electron = require('electron')
 var ipc = electron.ipcRenderer
 
+// expose Electron IPC to in-page scripts (used by internal pages)
+window.electron = electron
+window.ipc = ipc
+
 var propertiesToClone = ['deltaX', 'deltaY', 'metaKey', 'ctrlKey', 'defaultPrevented', 'clientX', 'clientY']
 
 function cloneEvent (e) {
@@ -70,4 +74,3 @@ window.addEventListener('message', function (e) {
     ipc.send('importBookmarks')
   }
 })
-

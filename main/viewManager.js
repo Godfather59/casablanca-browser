@@ -17,7 +17,7 @@ function getDefaultViewWebPreferences () {
       safeDialogs: true,
       safeDialogsMessage: 'Prevent this page from creating additional dialogs',
       preload: __dirname + '/dist/preload.js',
-      contextIsolation: true,
+      contextIsolation: false,
       sandbox: false,
       enableRemoteModule: false,
       allowPopups: false,

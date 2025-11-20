@@ -188,6 +188,8 @@ html {
   margin-bottom: 0.2em;
 }
 
+/* removed Library-specific styles; settings uses side-nav only */
+
 /* Layout for left-hand navigation + content */
 
 .settings-main {
