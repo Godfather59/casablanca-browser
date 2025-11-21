@@ -3,6 +3,14 @@ var viewStateMap = {} // id: view state
 
 var temporaryPopupViews = {} // id: view
 
+// some internal applications rely on window.open() preserving a window.opener
+// relationship (for example, https://test.xpi.ma:5443/ACS24 and its modules).
+// For those, treat window.open as a popup even when no "features" string is
+// provided so that Electron creates a real child WebContents.
+const forcePopupHosts = new Set([
+  'test.xpi.ma:5443'
+])
+
 // rate limit on "open in app" requests
 var globalLaunchRequests = 0
 const externalProtocolPromptCounts = new Map()
@@ -21,7 +29,6 @@ function getDefaultViewWebPreferences () {
       sandbox: false,
       enableRemoteModule: false,
       allowPopups: false,
-      // partition: partition || 'persist:webcontent',
       enableWebSQL: false,
       autoplayPolicy: (settings.get('enableAutoplay') ? 'no-user-gesture-required' : 'user-gesture-required'),
       // match Chrome's default for anti-fingerprinting purposes (Electron defaults to 0)
@@ -86,20 +93,43 @@ function createView (existingViewId, id, webPreferences, boundsString, events) {
       }
     }
 
+    // determine whether this URL should always be treated as a popup,
+    // even if no window features string is provided.
+    let shouldForcePopup = false
+
+    // For any scripted window.open (which usually uses the "new-window"
+    // disposition), always treat as a real popup so window.opener is
+    // preserved across all sites.
+    if (details.disposition === 'new-window') {
+      shouldForcePopup = true
+    }
+    if (details.url) {
+      try {
+        const u = new URL(details.url)
+        if (forcePopupHosts.has(u.host)) {
+          shouldForcePopup = true
+        }
+      } catch (e) {}
+    }
+
     /*
       Opening a popup with window.open() generally requires features to be set
       So if there are no features, the event is most likely from clicking on a link, which should open a new tab.
       Clicking a link can still have a "new-window" or "foreground-tab" disposition depending on which keys are pressed
       when it is clicked.
       (https://github.com/minbrowser/min/issues/1835)
+
+      For some internal apps that depend on window.opener (see forcePopupHosts),
+      we skip the "new-tab" shortcut and instead allow Electron to create a
+      proper popup WebContents so the opener relationship is preserved.
     */
-    if (!details.features) {
+    if (!details.features && !shouldForcePopup) {
       const eventTarget = getWindowFromViewContents(view) || windows.getCurrent()
 
       getWindowWebContents(eventTarget).send('view-event', {
         tabId: id,
         event: 'new-tab',
-        args: [details.url, !(details.disposition === 'background-tab')]
+        args: [details.url, !(details.disposition === 'background-tab'), details.referrer || null]
       })
       return {
         action: 'deny'
@@ -382,7 +412,7 @@ ipc.on('hideCurrentView', function (e) {
   hideCurrentView(e.sender)
 })
 
-function loadURLInView (id, url, win) {
+function loadURLInView (id, url, win, referrer) {
   // wait until the first URL is loaded to set the background color so that new tabs can use a custom background
   if (!viewStateMap[id].loadedInitialURL) {
     // Give the site a chance to display something before setting the background, in case it has its own dark theme
@@ -394,13 +424,21 @@ function loadURLInView (id, url, win) {
       win.getContentView().addChildView(viewMap[id])
     }
   }
-  viewMap[id].webContents.loadURL(url)
+  if (referrer) {
+    try {
+      viewMap[id].webContents.loadURL(url, { httpReferrer: referrer })
+    } catch (e) {
+      viewMap[id].webContents.loadURL(url)
+    }
+  } else {
+    viewMap[id].webContents.loadURL(url)
+  }
   viewStateMap[id].loadedInitialURL = true
 }
 
 ipc.on('loadURLInView', function (e, args) {
   const win = windows.windowFromContents(e.sender)?.win
-  loadURLInView(args.id, args.url, win)
+  loadURLInView(args.id, args.url, win, args.referrer)
 })
 
 ipc.on('callViewMethod', function (e, data) {

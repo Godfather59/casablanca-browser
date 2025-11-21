@@ -71,6 +71,64 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows', 'true')
 
 var userDataPath = app.getPath('userData')
 
+// persist cookies for specific internal domains where device/OTP
+// trust must survive restarts even if Electron's default behavior
+// doesn't. Currently used for self-signed internal sites.
+const trustedCookieDomains = ['test.xpi.ma']
+const trustedCookieBackupPath = path.join(userDataPath, 'trustedCookies.json')
+
+function isTrustedCookieDomain (domain) {
+  if (!domain) return false
+  return trustedCookieDomains.some(d => domain === d || domain === '.' + d)
+}
+
+function restoreTrustedCookies () {
+  try {
+    if (!fs.existsSync(trustedCookieBackupPath)) {
+      return
+    }
+    const raw = fs.readFileSync(trustedCookieBackupPath, 'utf-8')
+    if (!raw) return
+    const cookies = JSON.parse(raw)
+    if (!Array.isArray(cookies)) return
+
+    cookies.forEach(c => {
+      try {
+        const host = c.domain && c.domain.startsWith('.') ? c.domain.slice(1) : c.domain
+        const url = (c.secure ? 'https://' : 'http://') + host + (c.path || '/')
+        const cookie = {
+          url,
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path,
+          secure: c.secure,
+          httpOnly: c.httpOnly
+        }
+        if (c.expirationDate) {
+          cookie.expirationDate = c.expirationDate
+        }
+        session.defaultSession.cookies.set(cookie).catch(() => {})
+      } catch (e) {}
+    })
+  } catch (e) {
+    console.warn('restoreTrustedCookies failed', e)
+  }
+}
+
+function saveTrustedCookies () {
+  session.defaultSession.cookies.get({}).then(allCookies => {
+    const filtered = allCookies.filter(c => isTrustedCookieDomain(c.domain))
+    try {
+      fs.writeFileSync(trustedCookieBackupPath, JSON.stringify(filtered))
+    } catch (e) {
+      console.warn('saveTrustedCookies failed', e)
+    }
+  }).catch(e => {
+    console.warn('saveTrustedCookies failed (get)', e)
+  })
+}
+
 // initialize settings as early as possible, but avoid doing other
 // heavy work here so startup stays fast
 settings.initialize(userDataPath)
@@ -86,14 +144,8 @@ var secondaryMenu = null
 var isFocusMode = false
 var appIsReady = false
 
-const allowInvalidCerts = isDevelopmentMode || process.env.CASABLANCA_ALLOW_INVALID_CERTS === '1'
-
-// Reject invalid TLS certificates by default. Allow only in dev or when explicitly enabled.
+// Always allow self-signed/invalid TLS certificates so pages load without blocking.
 app.on('certificate-error', function (event, webContents, url, error, certificate, callback) {
-  if (!allowInvalidCerts) {
-    callback(false)
-    return
-  }
   event.preventDefault()
   callback(true)
 })
@@ -383,6 +435,8 @@ app.on('ready', function () {
   }
 
   registerBundleProtocol(session.defaultSession)
+  restoreTrustedCookies()
+  setInterval(saveTrustedCookies, 60000)
 
   // Enforce a CSP on internal pages served from the bundled app protocol.
   const internalCSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; script-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'self'"

@@ -29,6 +29,7 @@ class TabList {
       previewImage: '',
       isFileView: false,
       hasWebContents: false,
+      referrer: tab.referrer || null,
     }
 
     if (options.atEnd) {

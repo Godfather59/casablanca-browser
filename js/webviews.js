@@ -215,25 +215,30 @@ const webviews = {
 
     // if the tab is private, we want to partition it. See http://electron.atom.io/docs/v0.34.0/api/web-view-tag/#partition
     // since tab IDs are unique, we can use them as partition names
-    let partition
+    const webPreferences = {}
     if (tabData.private === true) {
-      // options.tabId is a number, which remote.session.fromPartition won't accept. It must be converted to a string first
-      partition = tabId.toString()
+      // all private tabs share a single in-memory partition,
+      // so logins persist between private tabs during one session
+      webPreferences.partition = 'private'
     }
 
     ipc.send('createView', {
       existingViewId,
       id: tabId,
-      webPreferences: {
-        partition: partition || 'persist:webcontent'
-      },
+      // for normal tabs, omit partition so they all use the default persistent session
+      webPreferences,
       boundsString: JSON.stringify(webviews.getViewBounds()),
       events: webviews.events.map(e => e.event).filter((i, idx, arr) => arr.indexOf(i) === idx)
     })
 
     if (!existingViewId) {
-      if (tabData.url) {
-        ipc.send('loadURLInView', { id: tabData.id, url: urlParser.parse(tabData.url) })
+      const parsedURL = tabData.url ? urlParser.parse(tabData.url) : null
+      if (parsedURL) {
+        ipc.send('loadURLInView', {
+          id: tabData.id,
+          url: parsedURL,
+          referrer: tabData.referrer || null
+        })
       } else if (tabData.private) {
         // workaround for https://github.com/minbrowser/min/issues/872
         ipc.send('loadURLInView', { id: tabData.id, url: urlParser.parse('min://newtab') })

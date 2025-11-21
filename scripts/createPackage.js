@@ -98,7 +98,10 @@ module.exports = function (platform, extraOptions) {
       ]
     },
     win: {
-      target: 'dir',
+      target: [
+        { target: 'nsis', arch: ['x64'] },
+        { target: 'dir', arch: ['x64'] }
+      ],
       icon: 'icons/icon256.ico'
     },
     mac: {
@@ -152,7 +155,7 @@ module.exports = function (platform, extraOptions) {
 
   const target = (function () {
     if (platform == 'win32') {
-      return Platform.WINDOWS.createTarget(['dir'], extraOptions.arch)
+      return Platform.WINDOWS.createTarget(['nsis', 'dir'], extraOptions.arch)
     } else if (platform == 'linux') {
       return Platform.LINUX.createTarget(['dir'], extraOptions.arch)
     } else if (platform == 'mac') {
