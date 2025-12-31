@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Casablanca</title>
+</head>
+
+<body>
+  <!-- Title bar / Drag region -->
+  <div id="titlebar">
+    <!-- Tabs row -->
+    <div id="tabs-row">
+      <div id="tabs-inner" role="tablist" class="has-thin-scrollbar"></div>
+      <button id="add-tab-button" class="tab-action-btn" tabindex="-1" title="New Tab (Ctrl+T)">+</button>
+    </div>
+
+    <!-- Window controls -->
+    <div class="window-controls">
+      <button class="win-btn caption-minimise" title="Minimize">−</button>
+      <button class="win-btn caption-maximize" title="Maximize">□</button>
+      <button class="win-btn win-close caption-close" title="Close">×</button>
+    </div>
+  </div>
+
+  <!-- Navigation bar -->
+  <div id="navbar">
+    <!-- Navigation buttons -->
+    <div id="nav-buttons">
+      <button id="back-button" class="nav-btn" tabindex="-1" title="Back (Alt+←)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M10 12L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+            stroke-linejoin="round" />
+        </svg>
+      </button>
+      <button id="forward-button" class="nav-btn" tabindex="-1" title="Forward (Alt+→)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+            stroke-linejoin="round" />
+        </svg>
+      </button>
+      <button id="reload-button" class="nav-btn" tabindex="-1" title="Reload (F5)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          <path d="M8 1V4L11 2.5L8 1Z" fill="currentColor" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- URL Bar -->
+    <div id="url-bar-container">
+      <div id="url-bar-inner">
+        <svg class="url-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" />
+          <path d="M8 2C10 4 10 12 8 14M8 2C6 4 6 12 8 14M2 8H14" stroke="currentColor" stroke-width="1" />
+        </svg>
+        <input type="text" id="url-bar" placeholder="Search or enter URL..." spellcheck="false" />
+      </div>
+    </div>
+
+    <!-- Right actions -->
+    <div id="nav-actions">
+      <button id="menu-button" class="nav-btn" tabindex="-1" title="Menu">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="3" r="1.5" fill="currentColor" />
+          <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+          <circle cx="8" cy="13" r="1.5" fill="currentColor" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Webview content area -->
+  <div id="webviews">
+    <div id="ntp-content">
+      <h1 id="ntp-welcome">Casablanca</h1>
+      <p id="ntp-subtitle">Press Ctrl+T or click + to open a new tab</p>
+    </div>
+  </div>
+
+  <!-- Main Entry Point -->
+  <script type="module" src="js/default.js"></script>
+</body>
+
+</html>

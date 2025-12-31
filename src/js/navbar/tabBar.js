@@ -1,0 +1,329 @@
+const EventEmitter = require('events')
+
+const webviews = require('webviews.js')
+const focusMode = require('focusMode.js')
+const readerView = require('readerView.js')
+const tabAudio = require('tabAudio.js')
+const dragula = require('dragula')
+const settings = require('util/settings/settings.js')
+const urlParser = require('util/urlParser.js')
+
+const tabEditor = require('navbar/tabEditor.js')
+const progressBar = require('navbar/progressBar.js')
+const permissionRequests = require('navbar/permissionRequests.js')
+
+let lastTabDeletion = 0 // TODO get rid of this
+
+const tabBar = {
+  navBar: document.getElementById('navbar'),
+  container: document.getElementById('tabs'),
+  containerInner: document.getElementById('tabs-inner'),
+  tabElementMap: {}, // tabId: tab element
+  events: new EventEmitter(),
+  dragulaInstance: null,
+  getTab: function (tabId) {
+    return tabBar.tabElementMap[tabId]
+  },
+  getTabInput: function (tabId) {
+    return tabBar.getTab(tabId).querySelector('.tab-input')
+  },
+  setActiveTab: function (tabId) {
+    const activeTab = document.querySelector('.tab-item.active')
+
+    if (activeTab) {
+      activeTab.classList.remove('active')
+      activeTab.removeAttribute('aria-selected')
+    }
+
+    const el = tabBar.getTab(tabId)
+    el.classList.add('active')
+    el.setAttribute('aria-selected', 'true')
+
+    requestAnimationFrame(function () {
+      el.scrollIntoView()
+    })
+  },
+  createTab: function (data) {
+    const tabEl = document.createElement('div')
+    tabEl.className = 'tab-item'
+    tabEl.setAttribute('data-tab', data.id)
+    tabEl.setAttribute('role', 'tab')
+
+    tabEl.appendChild(readerView.getButton(data.id))
+    tabEl.appendChild(tabAudio.getButton(data.id))
+    tabEl.appendChild(progressBar.create())
+
+    // icons
+
+    const iconArea = document.createElement('span')
+    iconArea.className = 'tab-icon-area'
+
+    if (data.private) {
+      const pbIcon = document.createElement('i')
+      pbIcon.className = 'icon-tab-is-private tab-icon tab-info-icon i carbon:view-off'
+      iconArea.appendChild(pbIcon)
+    }
+
+    const closeTabButton = document.createElement('button')
+    closeTabButton.className = 'tab-icon tab-close-button i carbon:close'
+
+    closeTabButton.addEventListener('click', function (e) {
+      tabBar.events.emit('tab-closed', data.id)
+      // prevent the searchbar from being opened
+      e.stopPropagation()
+    })
+
+    iconArea.appendChild(closeTabButton)
+
+    tabEl.appendChild(iconArea)
+
+    // title
+
+    const titleContainer = document.createElement('div')
+    titleContainer.className = 'title-container'
+
+    const title = document.createElement('span')
+    title.className = 'title'
+
+    // URL
+
+    const urlElement = document.createElement('span')
+    urlElement.className = 'url-element'
+
+    titleContainer.appendChild(title)
+    titleContainer.appendChild(urlElement)
+
+    tabEl.appendChild(titleContainer)
+
+    // click to enter edit mode or switch to a tab
+    tabEl.addEventListener('click', function (e) {
+      if (tabs.getSelected() !== data.id) { // else switch to tab if it isn't focused
+        tabBar.events.emit('tab-selected', data.id)
+      } else { // the tab is focused, edit tab instead
+        // When entering edit mode by clicking, only select the text;
+        // don't immediately show the large search suggestions overlay.
+        tabEditor.show(data.id, null, false)
+      }
+    })
+
+    // prevent middle-click from triggering autoscroll and let auxclick handle closing
+    tabEl.addEventListener('mousedown', function (e) {
+      if (e.button === 1) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    })
+
+    tabEl.addEventListener('auxclick', function (e) {
+      if (e.button === 1 || e.which === 2) { // middle click -> close tab
+        e.preventDefault()
+        e.stopPropagation()
+        tabBar.events.emit('tab-closed', data.id)
+      }
+    })
+
+    tabBar.updateTab(data.id, tabEl)
+
+    return tabEl
+  },
+  updateTab: function (tabId, tabEl = tabBar.getTab(tabId)) {
+    const tabData = tabs.get(tabId)
+
+    // update tab title
+    var tabTitle
+
+    const isNewTab = tabData.url === '' || tabData.url === urlParser.parse('min://newtab')
+    if (isNewTab) {
+      tabTitle = l('newTabLabel')
+    } else if (tabData.title) {
+      tabTitle = tabData.title
+    } else if (tabData.loaded) {
+      tabTitle = tabData.url
+    }
+
+    tabTitle = (tabTitle || l('newTabLabel')).substring(0, 500)
+
+    const titleEl = tabEl.querySelector('.title')
+    if (titleEl.textContent !== tabTitle) {
+      titleEl.textContent = tabTitle
+    }
+
+    tabEl.title = tabTitle
+    if (tabData.private) {
+      tabEl.title += ' (' + l('privateTab') + ')'
+    }
+
+    let tabUrl = urlParser.getDomain(tabData.url)
+    if (tabUrl.startsWith('www.') && tabUrl.split('.').length > 2) {
+      tabUrl = tabUrl.replace('www.', '')
+    }
+
+    const urlEl = tabEl.querySelector('.url-element')
+    if (urlEl.textContent !== tabUrl) {
+      urlEl.textContent = tabUrl
+    }
+
+    if (tabUrl && !urlParser.isInternalURL(tabData.url)) {
+      tabEl.classList.add('has-url')
+    } else {
+      tabEl.classList.remove('has-url')
+    }
+
+    // update tab audio icon
+    const audioButton = tabEl.querySelector('.tab-audio-button')
+    tabAudio.updateButton(tabId, audioButton)
+
+    tabEl.querySelectorAll('.permission-request-icon').forEach(el => el.remove())
+
+    permissionRequests.getButtons(tabId).reverse().forEach(function (button) {
+      tabEl.insertBefore(button, tabEl.children[0])
+    })
+
+    const iconArea = tabEl.getElementsByClassName('tab-icon-area')[0]
+
+    let insecureIcon = tabEl.getElementsByClassName('icon-tab-not-secure')[0]
+    if (tabData.secure === true && insecureIcon) {
+      insecureIcon.remove()
+    } else if (tabData.secure === false && !insecureIcon) {
+      insecureIcon = document.createElement('i')
+      insecureIcon.className = 'icon-tab-not-secure tab-icon tab-info-icon i carbon:unlocked'
+      insecureIcon.title = l('connectionNotSecure')
+      iconArea.appendChild(insecureIcon)
+    }
+  },
+  updateAll: function () {
+    empty(tabBar.containerInner)
+    tabBar.tabElementMap = {}
+
+    const fragment = document.createDocumentFragment()
+
+    tabs.get().forEach(function (tab) {
+      const el = tabBar.createTab(tab)
+      fragment.appendChild(el)
+      tabBar.tabElementMap[tab.id] = el
+    })
+
+    tabBar.containerInner.appendChild(fragment)
+
+    if (tabs.getSelected()) {
+      tabBar.setActiveTab(tabs.getSelected())
+    }
+    tabBar.handleSizeChange()
+  },
+  addTab: function (tabId) {
+    const tab = tabs.get(tabId)
+    const index = tabs.getIndex(tabId)
+
+    const tabEl = tabBar.createTab(tab)
+    tabBar.containerInner.insertBefore(tabEl, tabBar.containerInner.childNodes[index])
+    tabBar.tabElementMap[tabId] = tabEl
+    tabBar.handleSizeChange()
+  },
+  removeTab: function (tabId) {
+    const tabEl = tabBar.getTab(tabId)
+    if (tabEl) {
+      // The tab does not have a corresponding .tab-item element.
+      // This happens when destroying tabs from other task where this .tab-item is not present
+      tabBar.containerInner.removeChild(tabEl)
+      delete tabBar.tabElementMap[tabId]
+      tabBar.handleSizeChange()
+    }
+  },
+  handleDividerPreference: function (dividerPreference) {
+    if (dividerPreference === true) {
+      tabBar.navBar.classList.add('show-dividers')
+    } else {
+      tabBar.navBar.classList.remove('show-dividers')
+    }
+  },
+  initializeTabDragging: function () {
+    tabBar.dragulaInstance = dragula([document.getElementById('tabs-inner')], {
+      direction: 'horizontal',
+      slideFactorX: 25
+    })
+
+    tabBar.dragulaInstance.on('drop', function (el, target, source, sibling) {
+      var tabId = el.getAttribute('data-tab')
+      if (sibling) {
+        var adjacentTabId = sibling.getAttribute('data-tab')
+      }
+
+      var oldTab = tabs.splice(tabs.getIndex(tabId), 1)[0]
+
+      var newIdx
+      if (adjacentTabId) {
+        newIdx = tabs.getIndex(adjacentTabId)
+      } else {
+        // tab was inserted at end
+        newIdx = tabs.count()
+      }
+
+      tabs.splice(newIdx, 0, oldTab)
+    })
+  },
+  handleSizeChange: function () {
+    const tabCount = tabBar.containerInner.childNodes.length
+    const averageTabWidth = tabCount === 0 ? Infinity : window.innerWidth / tabCount
+
+    if (averageTabWidth < 190) {
+      tabBar.container.classList.add('compact-tabs')
+    } else {
+      tabBar.container.classList.remove('compact-tabs')
+    }
+  }
+}
+
+window.addEventListener('resize', tabBar.handleSizeChange)
+
+settings.listen('showDividerBetweenTabs', function (dividerPreference) {
+  tabBar.handleDividerPreference(dividerPreference)
+})
+
+/* tab loading and progress bar status */
+webviews.bindEvent('did-start-loading', function (tabId) {
+  progressBar.update(tabBar.getTab(tabId).querySelector('.progress-bar'), 'start')
+  tabs.update(tabId, { loaded: false })
+})
+
+webviews.bindEvent('did-stop-loading', function (tabId) {
+  progressBar.update(tabBar.getTab(tabId).querySelector('.progress-bar'), 'finish')
+  tabs.update(tabId, { loaded: true })
+  tabBar.updateTab(tabId)
+})
+
+tasks.on('tab-updated', function (id, key) {
+  var updateKeys = ['title', 'secure', 'url', 'muted', 'hasAudio']
+  if (updateKeys.includes(key)) {
+    tabBar.updateTab(id)
+  }
+})
+
+permissionRequests.onChange(function (tabId) {
+  if (tabs.get(tabId)) {
+    tabBar.updateTab(tabId)
+  }
+})
+
+tabBar.initializeTabDragging()
+
+tabBar.container.addEventListener('dragover', e => e.preventDefault())
+
+tabBar.container.addEventListener('drop', e => {
+  e.preventDefault()
+  var data = e.dataTransfer
+  var path = data.files[0] ? 'file://' + electron.webUtils.getPathForFile(data.files[0]) : data.getData('text')
+  if (!path) {
+    return
+  }
+  if (tabEditor.isShown || tabs.isEmpty()) {
+    webviews.update(tabs.getSelected(), path)
+    tabEditor.hide()
+  } else {
+    require('browserUI.js').addTab(tabs.add({
+      url: path,
+      private: tabs.get(tabs.getSelected()).private
+    }), { enterEditMode: false, openInBackground: !settings.get('openTabsInForeground') })
+  }
+})
+
+module.exports = tabBar
