@@ -10,6 +10,9 @@
 <body>
   <!-- Title bar / Drag region -->
   <div id="titlebar">
+    <!-- Drag area (left side) -->
+    <div id="drag-region"></div>
+
     <!-- Tabs row -->
     <div id="tabs-row">
       <div id="tabs-inner" role="tablist" class="has-thin-scrollbar"></div>
@@ -56,6 +59,12 @@
           <path d="M8 2C10 4 10 12 8 14M8 2C6 4 6 12 8 14M2 8H14" stroke="currentColor" stroke-width="1" />
         </svg>
         <input type="text" id="url-bar" placeholder="Search or enter URL..." spellcheck="false" />
+        <button id="bookmark-button" class="url-action-btn" tabindex="-1" title="Bookmark this page">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M8 2L9.5 5.5L13 6L10.5 8.5L11 12L8 10.5L5 12L5.5 8.5L3 6L6.5 5.5L8 2Z" stroke="currentColor"
+              stroke-width="1.2" fill="none" />
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -68,6 +77,36 @@
           <circle cx="8" cy="13" r="1.5" fill="currentColor" />
         </svg>
       </button>
+
+      <!-- Menu Dropdown -->
+      <div id="menu-dropdown" class="dropdown hidden">
+        <button class="dropdown-item" data-action="new-tab">
+          <span class="dropdown-icon">+</span>
+          <span>New Tab</span>
+          <span class="dropdown-shortcut">Ctrl+T</span>
+        </button>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item" data-action="history">
+          <span class="dropdown-icon">🕐</span>
+          <span>History</span>
+          <span class="dropdown-shortcut">Ctrl+H</span>
+        </button>
+        <button class="dropdown-item" data-action="bookmarks">
+          <span class="dropdown-icon">⭐</span>
+          <span>Bookmarks</span>
+          <span class="dropdown-shortcut">Ctrl+B</span>
+        </button>
+        <button class="dropdown-item" data-action="downloads">
+          <span class="dropdown-icon">↓</span>
+          <span>Downloads</span>
+          <span class="dropdown-shortcut">Ctrl+J</span>
+        </button>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item" data-action="settings">
+          <span class="dropdown-icon">⚙</span>
+          <span>Settings</span>
+        </button>
+      </div>
     </div>
   </div>
 

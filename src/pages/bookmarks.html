@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Bookmarks - Casablanca</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e8e8e8;
+            min-height: 100vh;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 400;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .bookmark-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .bookmark-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            padding: 20px;
+            background: #16213e;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.15s;
+            position: relative;
+        }
+
+        .bookmark-item:hover {
+            background: #1e2a47;
+            transform: translateY(-2px);
+        }
+
+        .bookmark-icon {
+            width: 32px;
+            height: 32px;
+            background-size: cover;
+            border-radius: 4px;
+        }
+
+        .bookmark-title {
+            font-size: 13px;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+
+        .bookmark-delete {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 20px;
+            height: 20px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            color: #8888aa;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s;
+            font-size: 12px;
+        }
+
+        .bookmark-item:hover .bookmark-delete {
+            opacity: 1;
+        }
+
+        .bookmark-delete:hover {
+            background: #e81123;
+            color: white;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 60px;
+            color: #8888aa;
+            grid-column: 1 / -1;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path d="M12 4L14 8.5L19 9L15.5 12.5L16.5 17.5L12 15L7.5 17.5L8.5 12.5L5 9L10 8.5L12 4Z"
+                    stroke="currentColor" stroke-width="2" fill="none" />
+            </svg>
+            Bookmarks
+        </h1>
+        <div id="bookmark-list" class="bookmark-list">
+            <div class="empty">Loading bookmarks...</div>
+        </div>
+    </div>
+    <script type="module">
+        import { invoke } from '@tauri-apps/api/core';
+
+        async function loadBookmarks() {
+            const list = document.getElementById('bookmark-list');
+            try {
+                const bookmarks = await invoke('get_bookmarks');
+                if (bookmarks.length === 0) {
+                    list.innerHTML = '<div class="empty">No bookmarks yet. Click ⭐ in the URL bar to add one.</div>';
+                    return;
+                }
+
+                let html = '';
+                for (const bm of bookmarks) {
+                    const hostname = new URL(bm.url).hostname;
+                    const favicon = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+
+                    html += `
+                        <div class="bookmark-item" data-url="${bm.url}" data-id="${bm.id}">
+                            <button class="bookmark-delete" data-id="${bm.id}">×</button>
+                            <div class="bookmark-icon" style="background-image: url(${favicon})"></div>
+                            <div class="bookmark-title">${bm.title || hostname}</div>
+                        </div>
+                    `;
+                }
+
+                list.innerHTML = html;
+
+                list.querySelectorAll('.bookmark-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        if (!e.target.classList.contains('bookmark-delete')) {
+                            window.location.href = item.dataset.url;
+                        }
+                    });
+                });
+
+                list.querySelectorAll('.bookmark-delete').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await invoke('delete_bookmark', { id: btn.dataset.id });
+                        loadBookmarks();
+                    });
+                });
+            } catch (e) {
+                list.innerHTML = '<div class="empty">Failed to load bookmarks</div>';
+            }
+        }
+
+        loadBookmarks();
+    </script>
+</body>
+
+</html>

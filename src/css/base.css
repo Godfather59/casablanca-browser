@@ -14,6 +14,8 @@
   --border-color: #2a2a4a;
   --tab-active-bg: #1a1a2e;
   --tab-hover-bg: #252540;
+  --dropdown-bg: #1e2a47;
+  --yellow: #ffd700;
 }
 
 * {
@@ -39,12 +41,14 @@ body {
   align-items: center;
   height: var(--titlebar-height);
   background: var(--surface-color);
-  -webkit-app-region: drag;
-  padding-left: 8px;
 }
 
-#titlebar * {
-  -webkit-app-region: no-drag;
+/* Drag region - left side of titlebar */
+#drag-region {
+  width: 8px;
+  height: 100%;
+  -webkit-app-region: drag;
+  flex-shrink: 0;
 }
 
 /* Tabs row */
@@ -56,6 +60,11 @@ body {
   gap: 2px;
   padding-top: 6px;
   overflow: hidden;
+  -webkit-app-region: drag;
+}
+
+#tabs-row>* {
+  -webkit-app-region: no-drag;
 }
 
 #tabs-inner {
@@ -63,6 +72,7 @@ body {
   gap: 2px;
   overflow-x: auto;
   scrollbar-width: none;
+  -webkit-app-region: no-drag;
 }
 
 #tabs-inner::-webkit-scrollbar {
@@ -151,6 +161,7 @@ body {
   font-size: 18px;
   margin: 0 4px;
   transition: background 0.1s;
+  -webkit-app-region: no-drag;
 }
 
 .tab-action-btn:hover {
@@ -163,6 +174,7 @@ body {
   display: flex;
   height: 100%;
   margin-left: auto;
+  -webkit-app-region: no-drag;
 }
 
 .win-btn {
@@ -274,9 +286,89 @@ body {
   color: var(--text-muted);
 }
 
+.url-action-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.1s;
+}
+
+.url-action-btn:hover {
+  color: var(--text-color);
+}
+
+.url-action-btn.bookmarked svg {
+  fill: var(--yellow);
+  stroke: var(--yellow);
+}
+
 #nav-actions {
   display: flex;
   gap: 2px;
+  position: relative;
+}
+
+/* Dropdown Menu */
+.dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 220px;
+  background: var(--dropdown-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.dropdown.hidden {
+  display: none;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  gap: 10px;
+  transition: background 0.1s;
+}
+
+.dropdown-item:hover {
+  background: var(--tab-hover-bg);
+}
+
+.dropdown-icon {
+  width: 20px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.dropdown-shortcut {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 0;
 }
 
 /* Webviews container */

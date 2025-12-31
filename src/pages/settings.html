@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Settings - Casablanca</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e8e8e8;
+            min-height: 100vh;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 400;
+            margin-bottom: 32px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .section {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #8888aa;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #2a2a4a;
+        }
+
+        .setting-row:last-child {
+            border-bottom: none;
+        }
+
+        .setting-label {
+            font-size: 14px;
+        }
+
+        .setting-desc {
+            font-size: 12px;
+            color: #8888aa;
+            margin-top: 4px;
+        }
+
+        select,
+        input[type="text"] {
+            padding: 8px 12px;
+            border: 1px solid #2a2a4a;
+            border-radius: 6px;
+            background: #1a1a2e;
+            color: #e8e8e8;
+            font-size: 13px;
+            min-width: 150px;
+        }
+
+        .toggle {
+            width: 44px;
+            height: 24px;
+            background: #2a2a4a;
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle.active {
+            background: #4A90D9;
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.2s;
+        }
+
+        .toggle.active::after {
+            transform: translateX(20px);
+        }
+
+        .about {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .about-logo {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .about-name {
+            font-size: 24px;
+            font-weight: 300;
+            margin-bottom: 8px;
+        }
+
+        .about-version {
+            color: #8888aa;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" />
+                <path
+                    d="M12 1v3M12 20v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1 12h3M20 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            Settings
+        </h1>
+
+        <div class="section">
+            <div class="section-title">Search</div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Default search engine</div>
+                </div>
+                <select id="search-engine">
+                    <option value="google" selected>Google</option>
+                    <option value="bing">Bing</option>
+                    <option value="duckduckgo">DuckDuckGo</option>
+                    <option value="yahoo">Yahoo</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Appearance</div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Dark mode</div>
+                    <div class="setting-desc">Use dark theme for browser interface</div>
+                </div>
+                <div class="toggle active" id="dark-mode"></div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Privacy & Security</div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Clear browsing data</div>
+                    <div class="setting-desc">History, cookies, and cached files</div>
+                </div>
+                <button id="clear-data"
+                    style="padding: 8px 16px; border: none; border-radius: 6px; background: #2a2a4a; color: #e8e8e8; cursor: pointer;">Clear
+                    data</button>
+            </div>
+        </div>
+
+        <div class="section about">
+            <div class="about-logo">🌐</div>
+            <div class="about-name">Casablanca Browser</div>
+            <div class="about-version">Version 1.0.0</div>
+            <div class="about-version" style="margin-top: 8px;">Built with Tauri + WebView2</div>
+        </div>
+    </div>
+    <script type="module">
+        import { invoke } from '@tauri-apps/api/core';
+
+        // Toggle handlers
+        document.querySelectorAll('.toggle').forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                toggle.classList.toggle('active');
+            });
+        });
+
+        // Clear data
+        document.getElementById('clear-data').addEventListener('click', async () => {
+            if (confirm('Clear all browsing data? This cannot be undone.')) {
+                await invoke('clear_history');
+                alert('Browsing data cleared.');
+            }
+        });
+    </script>
+</body>
+
+</html>

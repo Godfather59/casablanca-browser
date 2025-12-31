@@ -2,7 +2,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
-// Total toolbar height (titlebar + navbar)
 const TOOLBAR_HEIGHT = 76;
 
 class Tab {
@@ -20,10 +19,18 @@ class TabManager {
         this.tabs = [];
         this.activeTabId = null;
         this.nextId = 1;
+        this.menuOpen = false;
 
         this.tabsContainer = document.getElementById('tabs-inner');
         this.urlBar = document.getElementById('url-bar');
+        this.menuDropdown = document.getElementById('menu-dropdown');
+        this.bookmarkButton = document.getElementById('bookmark-button');
 
+        this.initEventListeners();
+        this.setupUrlListener();
+    }
+
+    initEventListeners() {
         // Navigation buttons
         document.getElementById('back-button')?.addEventListener('click', () => this.goBack());
         document.getElementById('forward-button')?.addEventListener('click', () => this.goForward());
@@ -31,7 +38,25 @@ class TabManager {
         document.getElementById('add-tab-button')?.addEventListener('click', () => this.createTab());
 
         // Menu button
-        document.getElementById('menu-button')?.addEventListener('click', () => this.showMenu());
+        document.getElementById('menu-button')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleMenu();
+        });
+
+        // Menu items
+        this.menuDropdown?.querySelectorAll('.dropdown-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const action = item.dataset.action;
+                this.handleMenuAction(action);
+                this.closeMenu();
+            });
+        });
+
+        // Close menu on outside click
+        document.addEventListener('click', () => this.closeMenu());
+
+        // Bookmark button
+        this.bookmarkButton?.addEventListener('click', () => this.toggleBookmark());
 
         // Window controls
         document.querySelector('.caption-minimise')?.addEventListener('click', () => this.minimizeWindow());
@@ -62,6 +87,18 @@ class TabManager {
                 this.urlBar?.focus();
                 this.urlBar?.select();
             }
+            if (e.ctrlKey && e.key === 'h') {
+                e.preventDefault();
+                this.showHistory();
+            }
+            if (e.ctrlKey && e.key === 'b') {
+                e.preventDefault();
+                this.showBookmarks();
+            }
+            if (e.ctrlKey && e.key === 'j') {
+                e.preventDefault();
+                this.showDownloads();
+            }
             if (e.altKey && e.key === 'ArrowLeft') {
                 e.preventDefault();
                 this.goBack();
@@ -74,31 +111,123 @@ class TabManager {
                 e.preventDefault();
                 this.reload();
             }
+            if (e.key === 'Escape') {
+                this.closeMenu();
+            }
         });
-
-        // Listen for URL changes from Tauri
-        this.setupUrlListener();
     }
 
     async setupUrlListener() {
-        await listen('tab-url-changed', (event) => {
+        await listen('tab-url-changed', async (event) => {
             const { label, url } = event.payload;
             const tab = this.tabs.find(t => t.webviewLabel === label);
             if (tab) {
                 tab.url = url;
                 this.updateTabDisplay(tab);
 
-                // Update URL bar if this is the active tab
                 if (tab.id === this.activeTabId && this.urlBar) {
                     this.urlBar.value = url;
+                    await this.updateBookmarkButton();
                 }
+
+                // Add to history
+                await this.addToHistory(url, tab.title);
             }
         });
     }
 
-    showMenu() {
-        // TODO: Implement dropdown menu
-        console.log('Menu clicked - TODO: implement dropdown');
+    // Menu
+    toggleMenu() {
+        this.menuOpen = !this.menuOpen;
+        this.menuDropdown?.classList.toggle('hidden', !this.menuOpen);
+    }
+
+    closeMenu() {
+        this.menuOpen = false;
+        this.menuDropdown?.classList.add('hidden');
+    }
+
+    handleMenuAction(action) {
+        switch (action) {
+            case 'new-tab':
+                this.createTab();
+                break;
+            case 'history':
+                this.showHistory();
+                break;
+            case 'bookmarks':
+                this.showBookmarks();
+                break;
+            case 'downloads':
+                this.showDownloads();
+                break;
+            case 'settings':
+                this.showSettings();
+                break;
+        }
+    }
+
+    // Bookmarks
+    async toggleBookmark() {
+        const tab = this.getActiveTab();
+        if (!tab) return;
+
+        const isBookmarked = await invoke('is_bookmarked', { url: tab.url });
+
+        if (isBookmarked) {
+            const bookmarks = await invoke('get_bookmarks');
+            const bookmark = bookmarks.find(b => b.url === tab.url);
+            if (bookmark) {
+                await invoke('delete_bookmark', { id: bookmark.id });
+            }
+        } else {
+            await invoke('add_bookmark', { url: tab.url, title: tab.title || tab.url });
+        }
+
+        await this.updateBookmarkButton();
+    }
+
+    async updateBookmarkButton() {
+        const tab = this.getActiveTab();
+        if (!tab || !this.bookmarkButton) return;
+
+        try {
+            const isBookmarked = await invoke('is_bookmarked', { url: tab.url });
+            this.bookmarkButton.classList.toggle('bookmarked', isBookmarked);
+        } catch (e) {
+            console.error('Failed to check bookmark:', e);
+        }
+    }
+
+    showBookmarks() {
+        const baseUrl = window.location.origin;
+        this.createTab(`${baseUrl}/pages/bookmarks.html`);
+    }
+
+    // History
+    async addToHistory(url, title) {
+        try {
+            // Skip internal pages
+            if (url.startsWith('about:')) return;
+            await invoke('add_to_history', { url, title: title || url });
+        } catch (e) {
+            console.error('Failed to add to history:', e);
+        }
+    }
+
+    showHistory() {
+        const baseUrl = window.location.origin;
+        this.createTab(`${baseUrl}/pages/history.html`);
+    }
+
+    showDownloads() {
+        const baseUrl = window.location.origin;
+        this.createTab(`${baseUrl}/pages/downloads.html`);
+    }
+
+    showSettings() {
+        const baseUrl = window.location.origin;
+        this.createTab(`${baseUrl}/pages/settings.html`);
     }
 
     // Window controls
@@ -207,6 +336,9 @@ class TabManager {
                 displayName = tab.url.substring(0, 20);
             }
 
+            // Use hostname as title for now
+            tab.title = displayName;
+
             const titleEl = tabEl.querySelector('.tab-title');
             if (titleEl) titleEl.textContent = displayName;
 
@@ -225,7 +357,6 @@ class TabManager {
         const tab = new Tab(this.nextId++, url);
         this.tabs.push(tab);
 
-        // Create tab UI
         const tabEl = document.createElement('div');
         tabEl.className = 'tab-item';
         tabEl.dataset.tabId = tab.id;
@@ -237,6 +368,8 @@ class TabManager {
         } catch (e) {
             displayName = url.substring(0, 20);
         }
+
+        tab.title = displayName;
 
         const faviconUrl = this.getFaviconUrl(url);
         const faviconStyle = faviconUrl ? `background-image: url(${faviconUrl}); background-color: transparent;` : '';
@@ -260,7 +393,6 @@ class TabManager {
 
         this.tabsContainer.appendChild(tabEl);
 
-        // Create native webview
         try {
             const label = await invoke('create_tab', { url });
             tab.webviewLabel = label;
@@ -285,7 +417,6 @@ class TabManager {
     }
 
     async activateTab(id) {
-        // Update all tab UIs
         this.tabsContainer.querySelectorAll('.tab-item').forEach(t => {
             t.classList.remove('active');
         });
@@ -295,13 +426,11 @@ class TabManager {
             tabEl.classList.add('active');
         }
 
-        // Show the webview
         const tab = this.tabs.find(t => t.id === id);
         if (tab?.webviewLabel) {
             try {
                 await invoke('show_tab', { label: tab.webviewLabel });
 
-                // Get current URL from the webview
                 const currentUrl = await invoke('get_tab_url', { label: tab.webviewLabel });
                 if (currentUrl) {
                     tab.url = currentUrl;
@@ -317,6 +446,7 @@ class TabManager {
         }
 
         this.activeTabId = id;
+        await this.updateBookmarkButton();
     }
 
     async closeTab(id) {

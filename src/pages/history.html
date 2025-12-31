@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>History - Casablanca</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e8e8e8;
+            min-height: 100vh;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 400;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        h1 svg {
+            opacity: 0.7;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            background: #2a2a4a;
+            color: #e8e8e8;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.15s;
+        }
+
+        button:hover {
+            background: #3a3a5a;
+        }
+
+        button.danger:hover {
+            background: #e81123;
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: #16213e;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .history-item:hover {
+            background: #1e2a47;
+        }
+
+        .history-icon {
+            width: 20px;
+            height: 20px;
+            background-size: cover;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .history-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .history-title {
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .history-url {
+            font-size: 12px;
+            color: #8888aa;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .history-time {
+            font-size: 12px;
+            color: #8888aa;
+            flex-shrink: 0;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 60px;
+            color: #8888aa;
+        }
+
+        .date-header {
+            font-size: 13px;
+            color: #8888aa;
+            padding: 16px 0 8px;
+            border-bottom: 1px solid #2a2a4a;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
+                <path d="M12 7V12L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            History
+        </h1>
+        <div class="actions">
+            <button id="clear-history" class="danger">Clear all history</button>
+        </div>
+        <div id="history-list" class="history-list">
+            <div class="empty">Loading history...</div>
+        </div>
+    </div>
+    <script type="module">
+        import { invoke } from '@tauri-apps/api/core';
+
+        async function loadHistory() {
+            const list = document.getElementById('history-list');
+            try {
+                const history = await invoke('get_history', { limit: 200 });
+                if (history.length === 0) {
+                    list.innerHTML = '<div class="empty">No history yet</div>';
+                    return;
+                }
+
+                let html = '';
+                let currentDate = '';
+
+                for (const entry of history) {
+                    const date = new Date(entry.timestamp * 1000);
+                    const dateStr = date.toLocaleDateString();
+                    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                    if (dateStr !== currentDate) {
+                        currentDate = dateStr;
+                        html += `<div class="date-header">${dateStr === new Date().toLocaleDateString() ? 'Today' : dateStr}</div>`;
+                    }
+
+                    const hostname = new URL(entry.url).hostname;
+                    const favicon = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
+
+                    html += `
+                        <div class="history-item" data-url="${entry.url}">
+                            <div class="history-icon" style="background-image: url(${favicon})"></div>
+                            <div class="history-info">
+                                <div class="history-title">${entry.title || hostname}</div>
+                                <div class="history-url">${entry.url}</div>
+                            </div>
+                            <div class="history-time">${timeStr}</div>
+                        </div>
+                    `;
+                }
+
+                list.innerHTML = html;
+
+                list.querySelectorAll('.history-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        window.location.href = item.dataset.url;
+                    });
+                });
+            } catch (e) {
+                list.innerHTML = '<div class="empty">Failed to load history</div>';
+            }
+        }
+
+        document.getElementById('clear-history').addEventListener('click', async () => {
+            if (confirm('Clear all browsing history?')) {
+                await invoke('clear_history');
+                loadHistory();
+            }
+        });
+
+        loadHistory();
+    </script>
+</body>
+
+</html>
