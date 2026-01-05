@@ -20,6 +20,7 @@ class TabManager {
         this.activeTabId = null;
         this.nextId = 1;
         this.menuOpen = false;
+        this.closedTabs = [];
 
         this.tabsContainer = document.getElementById('tabs-inner');
         // this.urlBar is no longer single global element
@@ -32,6 +33,9 @@ class TabManager {
 
         this.initEventListeners();
         this.setupUrlListener();
+
+        // Restore session
+        this.restoreSession();
     }
 
     initEventListeners() {
@@ -46,20 +50,14 @@ class TabManager {
         // Menu button
         document.getElementById('menu-button')?.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.toggleMenu();
+            this.showAppMenu();
         });
 
-        // Menu items
-        this.menuDropdown?.querySelectorAll('.dropdown-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const action = item.dataset.action;
-                this.handleMenuAction(action);
-                this.closeMenu();
-            });
+        // Listen for native menu events
+        listen('menu-event', (event) => {
+            const action = event.payload;
+            this.handleMenuAction(action);
         });
-
-        // Close menu on outside click
-        document.addEventListener('click', () => this.closeMenu());
 
         // Bookmarks button
         document.getElementById('bookmarks-btn')?.addEventListener('click', () => this.showBookmarks());
@@ -71,9 +69,14 @@ class TabManager {
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
+            // General Shortcuts
             if (e.ctrlKey && e.key === 't') {
                 e.preventDefault();
                 this.createTab();
+            }
+            if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+                e.preventDefault();
+                this.restoreClosedTab();
             }
             if (e.ctrlKey && e.key === 'w') {
                 e.preventDefault();
@@ -81,15 +84,25 @@ class TabManager {
                     this.closeTab(this.activeTabId);
                 }
             }
+            // Tab Switching
+            if (e.ctrlKey && e.key === 'Tab') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    this.switchTab(-1);
+                } else {
+                    this.switchTab(1);
+                }
+            }
+            // Address Bar Focus
             if (e.ctrlKey && e.key === 'l') {
                 e.preventDefault();
-                // Focus current tab's input
                 const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${this.activeTabId}"]`);
                 if (tabEl) {
                     const input = tabEl.querySelector('.tab-url-input');
                     this.activateTabEditMode(tabEl, input);
                 }
             }
+            // Features
             if (e.ctrlKey && e.key === 'h') {
                 e.preventDefault();
                 this.showHistory();
@@ -98,10 +111,21 @@ class TabManager {
                 e.preventDefault();
                 this.showBookmarks();
             }
+            if (e.ctrlKey && e.key === 'd') {
+                e.preventDefault();
+                this.bookmarkCurrentTab();
+            }
             if (e.ctrlKey && e.key === 'j') {
                 e.preventDefault();
                 this.showDownloads();
             }
+            // Open Downloads Folder (Quick Access)
+            if (e.ctrlKey && e.shiftKey && e.key === 'J') {
+                e.preventDefault();
+                invoke('open_downloads_folder');
+            }
+
+            // Navigation
             if (e.altKey && e.key === 'ArrowLeft') {
                 e.preventDefault();
                 this.goBack();
@@ -116,16 +140,145 @@ class TabManager {
             }
             if (e.key === 'Escape') {
                 this.closeMenu();
-                // Deactivate edit mode if active
                 const activeTabEl = this.tabsContainer.querySelector('.tab.editing');
                 if (activeTabEl) {
                     activeTabEl.classList.remove('editing');
                     const input = activeTabEl.querySelector('.tab-url-input');
                     const tab = this.getActiveTab();
-                    if (input && tab) input.value = tab.url; // Reset value
+                    if (input && tab) input.value = tab.url;
                 }
             }
         });
+
+        // Tab Drag and Drop Container Listeners
+        this.tabsContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const draggingTab = document.querySelector('.tab.dragging');
+            if (!draggingTab) return;
+
+            const afterElement = this.getDragAfterElement(this.tabsContainer, e.clientX);
+
+            // Should not drop after the "new tab" button
+            const addBtn = document.getElementById('add-tab-button');
+            if (afterElement === addBtn) {
+                this.tabsContainer.insertBefore(draggingTab, addBtn);
+            } else if (afterElement == null) {
+                // If null, it means append to end. But end is the button.
+                if (addBtn) this.tabsContainer.insertBefore(draggingTab, addBtn);
+                else this.tabsContainer.appendChild(draggingTab);
+            } else {
+                this.tabsContainer.insertBefore(draggingTab, afterElement);
+            }
+        });
+
+        this.tabsContainer.addEventListener('drop', (e) => {
+            // Reorder this.tabs array based on DOM order
+            // Filter out the add button from calculation
+            const newOrderIds = Array.from(this.tabsContainer.querySelectorAll('.tab')).map(el => parseInt(el.dataset.tabId));
+            this.tabs.sort((a, b) => newOrderIds.indexOf(a.id) - newOrderIds.indexOf(b.id));
+            this.saveSession();
+        });
+    }
+
+    getDragAfterElement(container, x) {
+        // Exclude the add button from draggable elements consideration
+        const draggableElements = [...container.querySelectorAll('.tab:not(.dragging)')];
+
+        return draggableElements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            // Use center of box for calculation
+            const offset = x - box.left - box.width / 2;
+            if (offset < 0 && offset > closest.offset) {
+                return { offset: offset, element: child };
+            } else {
+                return closest;
+            }
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
+
+    showToast(message, duration = 3000) {
+        let toast = document.getElementById('browser-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'browser-toast';
+            toast.className = 'toast';
+            document.body.appendChild(toast);
+        }
+
+        toast.textContent = message;
+        toast.classList.add('visible');
+
+        if (this.toastTimeout) clearTimeout(this.toastTimeout);
+        this.toastTimeout = setTimeout(() => {
+            toast.classList.remove('visible');
+        }, duration);
+    }
+
+    getTabDisplayInfo(url) {
+        let displayName = 'New Tab';
+        let isLocal = false;
+
+        try {
+            if (!url) return { displayName, isLocal };
+
+            const urlObj = new URL(url);
+            if (url.startsWith('file://')) {
+                const parts = url.split('/');
+                displayName = parts[parts.length - 1] || 'Local File';
+                isLocal = true;
+            } else if (url.includes('pages/')) {
+                displayName = url.split('pages/')[1].split('.')[0].replace(/^\w/, c => c.toUpperCase());
+                isLocal = true;
+            } else {
+                displayName = urlObj.hostname.replace('www.', '');
+            }
+        } catch (e) {
+            displayName = url.substring(0, 20);
+        }
+
+        return { displayName, isLocal };
+    }
+
+    saveSession() {
+        const activeIndex = this.tabs.findIndex(t => t.id === this.activeTabId);
+        const sessionData = {
+            tabs: this.tabs.map(t => ({ url: t.url })),
+            activeIndex: activeIndex
+        };
+        localStorage.setItem('nova_session_v2', JSON.stringify(sessionData));
+    }
+
+    restoreSession() {
+        try {
+            const saved = localStorage.getItem('nova_session_v2');
+            if (saved) {
+                const sessionData = JSON.parse(saved);
+                if (sessionData && Array.isArray(sessionData.tabs) && sessionData.tabs.length > 0) {
+                    let first = true;
+                    // Create all tabs without activating them (except the first one initially maybe)
+                    // We'll activate the correct one at the end
+                    for (const t of sessionData.tabs) {
+                        this.createTab(t.url, false);
+                    }
+
+                    // Restore active tab
+                    if (sessionData.activeIndex >= 0 && sessionData.activeIndex < this.tabs.length) {
+                        const tabToActivate = this.tabs[sessionData.activeIndex];
+                        this.activateTab(tabToActivate.id);
+                    } else if (this.tabs.length > 0) {
+                        this.activateTab(this.tabs[0].id);
+                    }
+                } else {
+                    this.createTab();
+                }
+            } else {
+                // Try legacy check (optional, or just default)
+                this.createTab();
+            }
+        } catch (e) {
+            console.error('Failed to restore session:', e);
+            this.createTab();
+        }
     }
 
     async setupUrlListener() {
@@ -138,19 +291,19 @@ class TabManager {
 
                 // Add to history
                 await this.addToHistory(url, tab.title);
+                this.saveSession();
             }
         });
     }
 
     // Menu
-    toggleMenu() {
-        this.menuOpen = !this.menuOpen;
-        this.menuDropdown?.classList.toggle('hidden', !this.menuOpen);
-    }
-
-    closeMenu() {
-        this.menuOpen = false;
-        this.menuDropdown?.classList.add('hidden');
+    async showAppMenu() {
+        try {
+            await invoke('show_app_menu');
+        } catch (e) {
+            console.error('Failed to show app menu:', e);
+            this.showToast('Failed to open menu');
+        }
     }
 
     handleMenuAction(action) {
@@ -166,6 +319,9 @@ class TabManager {
                 break;
             case 'downloads':
                 this.showDownloads();
+                break;
+            case 'open-downloads-folder':
+                invoke('open_downloads_folder');
                 break;
             case 'settings':
                 this.showSettings();
@@ -205,37 +361,50 @@ class TabManager {
     }
 
     // Window controls
-    async minimizeWindow() {
-        try { await invoke('minimize_window'); } catch (e) { console.error(e); }
-    }
-
-    async maximizeWindow() {
-        try { await invoke('maximize_window'); } catch (e) { console.error(e); }
-    }
-
-    async closeWindow() {
-        try { await invoke('close_window'); } catch (e) { console.error(e); }
-    }
+    async minimizeWindow() { try { await invoke('minimize_window'); } catch (e) { console.error(e); } }
+    async maximizeWindow() { try { await invoke('maximize_window'); } catch (e) { console.error(e); } }
+    async closeWindow() { try { await invoke('close_window'); } catch (e) { console.error(e); } }
 
     // Navigation
     async goBack() {
         const tab = this.getActiveTab();
         if (tab?.webviewLabel) {
-            try { await invoke('go_back', { label: tab.webviewLabel }); } catch (e) { console.error(e); }
+            try { await invoke('go_back', { label: tab.webviewLabel }); } catch (e) { this.showToast("Cannot go back"); }
         }
     }
 
     async goForward() {
         const tab = this.getActiveTab();
         if (tab?.webviewLabel) {
-            try { await invoke('go_forward', { label: tab.webviewLabel }); } catch (e) { console.error(e); }
+            try { await invoke('go_forward', { label: tab.webviewLabel }); } catch (e) { this.showToast("Cannot go forward"); }
         }
     }
 
     async reload() {
         const tab = this.getActiveTab();
         if (tab?.webviewLabel) {
-            try { await invoke('reload_tab', { label: tab.webviewLabel }); } catch (e) { console.error(e); }
+            // Show loading state
+            const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${tab.id}"]`);
+            if (tabEl) {
+                const icon = tabEl.querySelector('.tab-favicon');
+                if (icon) icon.classList.add('loading');
+            }
+
+            try {
+                await invoke('reload_tab', { label: tab.webviewLabel });
+                // Note: We don't have a 'load-finish' event yet to remove spinner, 
+                // but usually URL change or navigation clears it. 
+                // Ideally, we'd add 'tab-loading' event listener.
+                // For now, remove it after a timeout or on next URL chagne.
+                setTimeout(() => {
+                    const icon = tabEl?.querySelector('.tab-favicon');
+                    if (icon) icon.classList.remove('loading');
+                }, 2000);
+            } catch (e) {
+                this.showToast("Reload failed");
+                const icon = tabEl?.querySelector('.tab-favicon');
+                if (icon) icon.classList.remove('loading');
+            }
         }
     }
 
@@ -254,12 +423,23 @@ class TabManager {
         const activeTab = this.getActiveTab();
 
         if (activeTab && activeTab.webviewLabel) {
+            // Show loading
+            const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${activeTab.id}"]`);
+            if (tabEl) {
+                const icon = tabEl.querySelector('.tab-favicon');
+                if (icon) icon.classList.add('loading');
+            }
+
             try {
                 await invoke('navigate_tab', { label: activeTab.webviewLabel, url });
                 activeTab.url = url;
                 this.updateTabDisplay(activeTab);
+                this.saveSession();
             } catch (e) {
                 console.error('Navigate failed:', e);
+                this.showToast("Navigation failed: " + e);
+                const icon = tabEl?.querySelector('.tab-favicon');
+                if (icon) icon.classList.remove('loading');
             }
         } else {
             this.createTab(url);
@@ -278,20 +458,11 @@ class TabManager {
     updateTabDisplay(tab) {
         const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${tab.id}"]`);
         if (tabEl) {
-            let displayName = 'New Tab';
-            try {
-                const urlObj = new URL(tab.url);
-                if (tab.url.startsWith('file://')) {
-                    const parts = tab.url.split('/');
-                    displayName = parts[parts.length - 1] || 'Local File';
-                } else if (tab.url.includes('pages/')) {
-                    displayName = tab.url.split('pages/')[1].split('.')[0].replace(/^\w/, c => c.toUpperCase());
-                } else {
-                    displayName = urlObj.hostname.replace('www.', '');
-                }
-            } catch (e) {
-                displayName = tab.url.substring(0, 20);
-            }
+            // Stop loading spinner if URL changed (implies load started/advanced)
+            const iconEl = tabEl.querySelector('.tab-favicon');
+            if (iconEl) iconEl.classList.remove('loading');
+
+            const { displayName, isLocal } = this.getTabDisplayInfo(tab.url);
 
             tab.title = displayName;
 
@@ -303,10 +474,9 @@ class TabManager {
                 inputEl.value = tab.url;
             }
 
-            const iconEl = tabEl.querySelector('.tab-favicon');
             if (iconEl) {
                 const faviconUrl = this.getFaviconUrl(tab.url);
-                if (faviconUrl && !tab.url.startsWith('file://')) {
+                if (faviconUrl && !isLocal) {
                     iconEl.style.backgroundImage = `url(${faviconUrl})`;
                 } else {
                     iconEl.style.backgroundImage = ''; // Reset or default
@@ -315,26 +485,22 @@ class TabManager {
         }
     }
 
-    async createTab(url = 'https://www.google.com') {
+    async createTab(url = 'https://www.google.com', activate = true) {
         const tab = new Tab(this.nextId++, url);
         this.tabs.push(tab);
 
         // Create HTML using new NOVA properties
         const tabEl = document.createElement('div');
         tabEl.className = 'tab';
+        tabEl.draggable = true; // Enable dragging
         tabEl.dataset.tabId = tab.id;
         tabEl.dataset.url = url;
 
-        let displayName = 'New Tab';
-        try {
-            // Logic repeated from updateTabDisplay, could be extracted
-            const urlObj = new URL(url);
-            displayName = urlObj.hostname.replace('www.', '');
-        } catch (e) { }
+        const { displayName, isLocal } = this.getTabDisplayInfo(url);
 
         tab.title = displayName;
         const faviconUrl = this.getFaviconUrl(url);
-        const faviconStyle = faviconUrl ? `background-image: url(${faviconUrl})` : '';
+        const faviconStyle = (faviconUrl && !isLocal) ? `background-image: url(${faviconUrl})` : '';
 
         tabEl.innerHTML = `
             <div class="tab-favicon" style="${faviconStyle}"></div>
@@ -352,8 +518,25 @@ class TabManager {
             </button>
         `;
 
+        // Tab Drag Events
+        tabEl.addEventListener('dragstart', () => {
+            tabEl.classList.add('dragging');
+        });
+
+        tabEl.addEventListener('dragend', () => {
+            tabEl.classList.remove('dragging');
+        });
+
         // Tab Click & Edit Logic
         const urlInput = tabEl.querySelector('.tab-url-input');
+
+        // Middle Click Close
+        tabEl.addEventListener('mousedown', (e) => {
+            if (e.button === 1) { // Middle click
+                e.preventDefault();
+                this.closeTab(tab.id);
+            }
+        });
 
         tabEl.addEventListener('click', (e) => {
             if (e.target.closest('.tab-close')) return;
@@ -390,16 +573,26 @@ class TabManager {
             this.closeTab(tab.id);
         });
 
-        this.tabsContainer.appendChild(tabEl);
+        const addBtn = document.getElementById('add-tab-button');
+        if (addBtn) {
+            this.tabsContainer.insertBefore(tabEl, addBtn);
+        } else {
+            this.tabsContainer.appendChild(tabEl);
+        }
+
+        // Show immediately in DOM, then load webview
+        if (activate) {
+            await this.activateTab(tab.id);
+        }
+        this.saveSession();
 
         try {
             const label = await invoke('create_tab', { url });
             tab.webviewLabel = label;
         } catch (e) {
             console.error('Failed to create webview:', e);
+            this.showToast('Failed to create tab content');
         }
-
-        await this.activateTab(tab.id);
 
         const ntpContent = document.getElementById('ntp-content');
         if (ntpContent) {
@@ -459,6 +652,11 @@ class TabManager {
             }
         }
 
+        // Add to closed tabs stack for restore
+        if (tab.url !== 'about:blank' && !tab.url.startsWith('file://')) { // Filter logic as needed
+            this.closedTabs.push({ url: tab.url, title: tab.title });
+        }
+
         this.tabs.splice(index, 1);
         const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${id}"]`);
         if (tabEl) {
@@ -467,6 +665,8 @@ class TabManager {
             tabEl.style.opacity = '0';
             setTimeout(() => tabEl.remove(), 150);
         }
+
+        this.saveSession();
 
         if (this.activeTabId === id && this.tabs.length > 0) {
             // Activate adjacent tab
@@ -484,6 +684,43 @@ class TabManager {
 
     getActiveTab() {
         return this.tabs.find(t => t.id === this.activeTabId);
+    }
+
+    // New Features Logic
+
+    async bookmarkCurrentTab() {
+        const tab = this.getActiveTab();
+        if (!tab) return;
+        try {
+            await invoke('add_bookmark', { url: tab.url, title: tab.title || tab.url });
+            this.showToast('Bookmarked!');
+        } catch (e) {
+            this.showToast('Failed to bookmark');
+        }
+    }
+
+    restoreClosedTab() {
+        if (this.closedTabs.length > 0) {
+            const lastTab = this.closedTabs.pop();
+            this.createTab(lastTab.url, true);
+        } else {
+            this.showToast('No recently closed tabs');
+        }
+    }
+
+    switchTab(direction) {
+        if (this.tabs.length <= 1) return;
+
+        const currentIndex = this.tabs.findIndex(t => t.id === this.activeTabId);
+        if (currentIndex === -1) return;
+
+        let newIndex = currentIndex + direction;
+        // Wrap around
+        if (newIndex < 0) newIndex = this.tabs.length - 1;
+        if (newIndex >= this.tabs.length) newIndex = 0;
+
+        const nextTab = this.tabs[newIndex];
+        this.activateTab(nextTab.id);
     }
 }
 

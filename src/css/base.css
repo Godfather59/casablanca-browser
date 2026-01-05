@@ -1,4 +1,9 @@
 /* NOVA Browser Styles */
+:root {
+    --toolbar-height: 50px;
+    --primary-gradient: linear-gradient(135deg, #667eea, #764ba2);
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -16,6 +21,50 @@ body {
     /* Prevent body scroll */
 }
 
+/* Toast Notification */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(30, 30, 40, 0.9);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 10000;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.toast.visible {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+/* Loading Spinner */
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.tab-favicon.loading {
+    background-image: none !important;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top: 2px solid white;
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+    animation: spin 1s linear infinite;
+}
+
 /* Re-implement browser-window as the main container that fills the viewport */
 .browser-window {
     width: 100vw;
@@ -29,12 +78,13 @@ body {
 
 .title-bar {
     background: linear-gradient(135deg, #1a1a2e, #16213e);
-    padding: 8px 16px;
+    padding: 0 16px;
+    /* Remove vertical padding */
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    height: 50px;
+    height: var(--toolbar-height);
     /* Fixed height for consistency */
     flex-shrink: 0;
     -webkit-app-region: drag;
@@ -53,7 +103,11 @@ body {
     align-items: center;
     gap: 12px;
     flex-shrink: 0;
+    height: 100%;
+    /* Full height to center items */
 }
+
+/* ... Brand/Nav styles generally okay, ensure vertically centered ... */
 
 .brand {
     display: flex;
@@ -81,12 +135,14 @@ body {
     letter-spacing: 0.5px;
 }
 
+/* ... Nav Group ... */
 .nav-group {
     display: flex;
     gap: 3px;
     margin-left: 10px;
 }
 
+/* ... Nav Btn ... */
 .nav-btn {
     width: 28px;
     height: 28px;
@@ -101,6 +157,7 @@ body {
     color: rgba(255, 255, 255, 0.7);
 }
 
+/* ... hover styles ... */
 .nav-btn:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.2);
     transform: translateY(-1px);
@@ -115,15 +172,20 @@ body {
     cursor: not-allowed;
 }
 
+/* TABS: Updated for full height hit area */
 .tabs-inline {
     flex: 1;
     display: flex;
-    gap: 6px;
+    gap: 1px;
+    /* Minimal gap */
     overflow-x: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
-    padding: 0 8px;
-    align-items: center;
+    padding: 0;
+    /* Remove padding */
+    align-items: stretch;
+    /* Full height tabs */
+    height: 100%;
 }
 
 .tabs-inline::-webkit-scrollbar {
@@ -131,27 +193,31 @@ body {
 }
 
 .tab {
-    background: rgba(255, 255, 255, 0.1);
+    background: transparent;
     padding: 0 12px;
-    height: 34px;
-    border-radius: 8px;
+    height: 100%;
+    /* Full height */
+    border-radius: 0;
+    /* Rectangular-ish or only top rounded */
     display: flex;
     align-items: center;
     gap: 8px;
     cursor: pointer;
     font-size: 12px;
     color: rgba(255, 255, 255, 0.6);
-    transition: all 0.3s;
+    transition: background 0.2s, color 0.2s;
     min-width: 160px;
     max-width: 280px;
-    border: 1px solid transparent;
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    /* Separator */
     flex-shrink: 0;
     position: relative;
     user-select: none;
+    margin: 0;
 }
 
 .tab:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.1);
     color: rgba(255, 255, 255, 0.9);
 }
 
@@ -159,8 +225,28 @@ body {
     background: rgba(255, 255, 255, 0.95);
     color: #333;
     /* Darker text for white bg */
-    border-color: rgba(102, 126, 234, 0.3);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-color: transparent;
+    box-shadow: none;
+    border-radius: 8px 8px 0 0;
+    /* Only top rounded for active tab look if desired, or keep square */
+    height: 100%;
+    margin: 0;
+}
+
+/* Active tab visual distinction */
+.tab.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #667eea;
+}
+
+.tab.dragging {
+    opacity: 0.5;
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .tab.editing {
@@ -168,6 +254,7 @@ body {
     max-width: 500px;
 }
 
+/* ... favicon and info styles ... */
 .tab-favicon {
     width: 14px;
     height: 14px;
@@ -237,8 +324,8 @@ body {
 }
 
 .tab-close {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
     border: none;
     background: transparent;
     border-radius: 3px;
@@ -268,15 +355,17 @@ body {
 .right-section {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0;
+    /* Remove gap for flush controls */
     flex-shrink: 0;
+    height: 100%;
 }
 
 .new-tab-inline {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border: none;
-    background: rgba(255, 255, 255, 0.1);
+    background: transparent;
     border-radius: 6px;
     cursor: pointer;
     display: flex;
@@ -284,18 +373,25 @@ body {
     justify-content: center;
     transition: all 0.3s;
     color: rgba(255, 255, 255, 0.7);
+    margin: 0 4px;
+    /* Keep some spacing for the plus button */
+    align-self: center;
 }
 
 .new-tab-inline:hover {
     background: rgba(255, 255, 255, 0.2);
-    transform: rotate(90deg);
 }
 
 .action-buttons {
     display: flex;
     gap: 3px;
+    align-items: center;
+    height: 100%;
+    margin-right: 8px;
+    /* Spacing before window controls */
 }
 
+/* ... Action Btns ... */
 .action-btn,
 .menu-toggle {
     width: 28px;
@@ -317,37 +413,76 @@ body {
     transform: translateY(-1px);
 }
 
+/* Flush Window Controls */
 .window-controls {
     display: flex;
-    gap: 8px;
+    gap: 0;
     margin-left: 8px;
+    height: 100%;
+    /* Full Height */
+    align-items: flex-start;
+    /* Ensure items stretch or sit top */
 }
 
 .control-btn {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
+    width: 46px;
+    /* Width for easy hitting */
+    height: 100%;
+    /* Touch top */
+    border-radius: 0;
     border: none;
     cursor: pointer;
     transition: all 0.2s;
     padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    position: relative;
+    /* Remove gradient bubbles, use icons or simple hover */
 }
 
+/* Revert gradients to simple hover blocks for Fitts Law / Windows style */
 .control-btn:hover {
-    transform: scale(1.15);
-    filter: brightness(1.2);
+    background: rgba(255, 255, 255, 0.1);
+    transform: none;
+    filter: none;
 }
 
-.control-btn.close {
-    background: linear-gradient(135deg, #ff6b6b, #ee5a6f);
+.control-btn.close:hover {
+    background: #e81123;
+    color: white;
 }
 
-.control-btn.minimize {
-    background: linear-gradient(135deg, #ffd93d, #fcbf49);
+/* Add icons via CSS masking or ::after if not in HTML. 
+   Currently HTML has empty buttons. I should probably add SVG icons or simple CSS shapes.
+   For now, simple shapes via ::after */
+
+.control-btn.minimize::after {
+    content: '';
+    width: 10px;
+    height: 1px;
+    background: currentColor;
 }
 
+.control-btn.maximize::after {
+    content: '';
+    width: 10px;
+    height: 10px;
+    border: 1px solid currentColor;
+}
+
+.control-btn.close::after {
+    content: '✕';
+    font-size: 10px;
+}
+
+/* Old dot styles removal override */
+.control-btn.close,
+.control-btn.minimize,
 .control-btn.maximize {
-    background: linear-gradient(135deg, #6bcf7f, #51cf66);
+    background: transparent;
 }
 
 .content-area {
@@ -389,64 +524,4 @@ body {
     line-height: 1.8;
     font-size: 16px;
     max-width: 600px;
-}
-
-/* Dropdown Menu - Adapted */
-.dropdown {
-    position: absolute;
-    top: 50px;
-    right: 10px;
-    width: 220px;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
-    border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    z-index: 1000;
-    border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.dropdown.hidden {
-    display: none;
-}
-
-.dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    font-size: 13px;
-    color: #1a1a2e;
-    transition: all 0.2s;
-    width: 100%;
-    text-align: left;
-}
-
-.dropdown-item:hover {
-    background: rgba(102, 126, 234, 0.1);
-    color: #667eea;
-}
-
-.dropdown-icon {
-    width: 16px;
-    text-align: center;
-}
-
-.dropdown-shortcut {
-    margin-left: auto;
-    font-size: 11px;
-    color: #999;
-}
-
-.dropdown-divider {
-    height: 1px;
-    background: rgba(0, 0, 0, 0.05);
-    margin: 4px 0;
 }

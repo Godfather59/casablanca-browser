@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
-use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
+use tauri::{Emitter, Listener, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
 static WEBVIEW_COUNTER: AtomicU32 = AtomicU32::new(1);
 static WEBVIEWS: Mutex<Option<HashMap<String, ()>>> = Mutex::new(None);
@@ -36,7 +36,37 @@ async fn create_tab(app: tauri::AppHandle, url: String) -> Result<String, String
 
     let builder = tauri::webview::WebviewBuilder::new(&label, WebviewUrl::External(parsed_url))
         .auto_resize()
-        .on_navigation(move |url| {
+        .initialization_script(
+            r#"
+            document.addEventListener('fullscreenchange', () => {
+                if (document.fullscreenElement) {
+                    window.location.hash = 'tauri-fs-true';
+                } else {
+                    window.location.hash = 'tauri-fs-false';
+                }
+            });
+        "#,
+        )
+        .on_navigation(move |url: &Url| {
+            if let Some(fragment) = url.fragment() {
+                let is_fullscreen = match fragment {
+                    "tauri-fs-true" => Some(true),
+                    "tauri-fs-false" => Some(false),
+                    _ => None,
+                };
+
+                if let Some(fs) = is_fullscreen {
+                    let _ = app_clone.emit(
+                        "tab-fullscreen",
+                        serde_json::json!({
+                            "label": label_clone,
+                            "is_fullscreen": fs
+                        }),
+                    );
+                    return true;
+                }
+            }
+
             let _ = app_clone.emit(
                 "tab-url-changed",
                 serde_json::json!({
@@ -372,6 +402,87 @@ async fn clear_history(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+use tauri::menu::{ContextMenu, Menu, MenuItem};
+
+#[tauri::command]
+async fn show_app_menu(app: tauri::AppHandle) -> Result<(), String> {
+    let new_tab = MenuItem::with_id(&app, "new-tab", "New Tab", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    // Shortcuts (accelerators) are view-only in popups usually, or we can set them.
+    // For now, simple items.
+
+    let history = MenuItem::with_id(&app, "history", "History", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let bookmarks = MenuItem::with_id(&app, "bookmarks", "Bookmarks", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let downloads = MenuItem::with_id(&app, "downloads", "Downloads", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let open_downloads = MenuItem::with_id(
+        &app,
+        "open-downloads-folder",
+        "Open Downloads Folder",
+        true,
+        None::<&str>,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let settings = MenuItem::with_id(&app, "settings", "Settings", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+
+    let menu = Menu::with_items(
+        &app,
+        &[
+            &new_tab,
+            &history,
+            &bookmarks,
+            &downloads,
+            &open_downloads,
+            &settings,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let window = app.get_window("main").ok_or("Main window not found")?;
+
+    // Popup at cursor
+    menu.popup(window).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_downloads_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let download_dir = app
+        .path()
+        .download_dir()
+        .map_err(|e| format!("Failed to get download dir: {}", e))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&download_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&download_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&download_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -380,6 +491,56 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            app.listen_any("tab-fullscreen", move |event: tauri::Event| {
+                if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
+                    let label = payload
+                        .get("label")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or_default();
+                    let is_fullscreen = payload
+                        .get("is_fullscreen")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(false);
+
+                    if let Some(webview) = app_handle.get_webview(label) {
+                        if let Some(window) = app_handle.get_window("main") {
+                            if let Ok(scale_factor) = window.scale_factor() {
+                                if let Ok(size) = window.inner_size() {
+                                    let logical_width = size.width as f64 / scale_factor;
+                                    let logical_height = size.height as f64 / scale_factor;
+                                    let toolbar_height = 76.0;
+
+                                    if is_fullscreen {
+                                        let _ =
+                                            webview.set_position(LogicalPosition::new(0.0, 0.0));
+                                        let _ = webview.set_size(LogicalSize::new(
+                                            logical_width,
+                                            logical_height,
+                                        ));
+                                    } else {
+                                        let _ = webview.set_position(LogicalPosition::new(
+                                            0.0,
+                                            toolbar_height,
+                                        ));
+                                        let _ = webview.set_size(LogicalSize::new(
+                                            logical_width,
+                                            logical_height - toolbar_height,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            Ok(())
+        })
+        .on_menu_event(|app, event| {
+            let id = event.id();
+            let _ = app.emit("menu-event", id.as_ref());
+        })
         .invoke_handler(tauri::generate_handler![
             create_tab,
             close_tab,
@@ -402,6 +563,9 @@ pub fn run() {
             add_to_history,
             get_history,
             clear_history,
+            // Menu
+            show_app_menu,
+            open_downloads_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
