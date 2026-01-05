@@ -22,9 +22,13 @@ class TabManager {
         this.menuOpen = false;
 
         this.tabsContainer = document.getElementById('tabs-inner');
-        this.urlBar = document.getElementById('url-bar');
+        // this.urlBar is no longer single global element
         this.menuDropdown = document.getElementById('menu-dropdown');
-        this.bookmarkButton = document.getElementById('bookmark-button');
+
+        // Window controls
+        this.minimizeBtn = document.querySelector('.title-bar-minimize');
+        this.maximizeBtn = document.querySelector('.title-bar-maximize');
+        this.closeBtn = document.querySelector('.title-bar-close');
 
         this.initEventListeners();
         this.setupUrlListener();
@@ -35,6 +39,8 @@ class TabManager {
         document.getElementById('back-button')?.addEventListener('click', () => this.goBack());
         document.getElementById('forward-button')?.addEventListener('click', () => this.goForward());
         document.getElementById('reload-button')?.addEventListener('click', () => this.reload());
+        document.getElementById('home-button')?.addEventListener('click', () => this.navigateToUrl('https://www.google.com')); // Home button action
+
         document.getElementById('add-tab-button')?.addEventListener('click', () => this.createTab());
 
         // Menu button
@@ -55,20 +61,13 @@ class TabManager {
         // Close menu on outside click
         document.addEventListener('click', () => this.closeMenu());
 
-        // Bookmark button
-        this.bookmarkButton?.addEventListener('click', () => this.toggleBookmark());
+        // Bookmarks button
+        document.getElementById('bookmarks-btn')?.addEventListener('click', () => this.showBookmarks());
 
         // Window controls
-        document.querySelector('.caption-minimise')?.addEventListener('click', () => this.minimizeWindow());
-        document.querySelector('.caption-maximize')?.addEventListener('click', () => this.maximizeWindow());
-        document.querySelector('.caption-close')?.addEventListener('click', () => this.closeWindow());
-
-        // URL bar
-        this.urlBar?.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                this.navigateToUrl(this.urlBar.value);
-            }
-        });
+        this.minimizeBtn?.addEventListener('click', () => this.minimizeWindow());
+        this.maximizeBtn?.addEventListener('click', () => this.maximizeWindow());
+        this.closeBtn?.addEventListener('click', () => this.closeWindow());
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -84,8 +83,12 @@ class TabManager {
             }
             if (e.ctrlKey && e.key === 'l') {
                 e.preventDefault();
-                this.urlBar?.focus();
-                this.urlBar?.select();
+                // Focus current tab's input
+                const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${this.activeTabId}"]`);
+                if (tabEl) {
+                    const input = tabEl.querySelector('.tab-url-input');
+                    this.activateTabEditMode(tabEl, input);
+                }
             }
             if (e.ctrlKey && e.key === 'h') {
                 e.preventDefault();
@@ -113,6 +116,14 @@ class TabManager {
             }
             if (e.key === 'Escape') {
                 this.closeMenu();
+                // Deactivate edit mode if active
+                const activeTabEl = this.tabsContainer.querySelector('.tab.editing');
+                if (activeTabEl) {
+                    activeTabEl.classList.remove('editing');
+                    const input = activeTabEl.querySelector('.tab-url-input');
+                    const tab = this.getActiveTab();
+                    if (input && tab) input.value = tab.url; // Reset value
+                }
             }
         });
     }
@@ -124,11 +135,6 @@ class TabManager {
             if (tab) {
                 tab.url = url;
                 this.updateTabDisplay(tab);
-
-                if (tab.id === this.activeTabId && this.urlBar) {
-                    this.urlBar.value = url;
-                    await this.updateBookmarkButton();
-                }
 
                 // Add to history
                 await this.addToHistory(url, tab.title);
@@ -167,38 +173,7 @@ class TabManager {
         }
     }
 
-    // Bookmarks
-    async toggleBookmark() {
-        const tab = this.getActiveTab();
-        if (!tab) return;
-
-        const isBookmarked = await invoke('is_bookmarked', { url: tab.url });
-
-        if (isBookmarked) {
-            const bookmarks = await invoke('get_bookmarks');
-            const bookmark = bookmarks.find(b => b.url === tab.url);
-            if (bookmark) {
-                await invoke('delete_bookmark', { id: bookmark.id });
-            }
-        } else {
-            await invoke('add_bookmark', { url: tab.url, title: tab.title || tab.url });
-        }
-
-        await this.updateBookmarkButton();
-    }
-
-    async updateBookmarkButton() {
-        const tab = this.getActiveTab();
-        if (!tab || !this.bookmarkButton) return;
-
-        try {
-            const isBookmarked = await invoke('is_bookmarked', { url: tab.url });
-            this.bookmarkButton.classList.toggle('bookmarked', isBookmarked);
-        } catch (e) {
-            console.error('Failed to check bookmark:', e);
-        }
-    }
-
+    // Actions implementations
     showBookmarks() {
         const baseUrl = window.location.origin;
         this.createTab(`${baseUrl}/pages/bookmarks.html`);
@@ -207,8 +182,7 @@ class TabManager {
     // History
     async addToHistory(url, title) {
         try {
-            // Skip internal pages
-            if (url.startsWith('http://localhost') || url.startsWith('about:')) return;
+            if (url.startsWith('http://localhost') || url.startsWith('about:') || url.startsWith('file://')) return;
             await invoke('add_to_history', { url, title: title || url });
         } catch (e) {
             console.error('Failed to add to history:', e);
@@ -232,66 +206,42 @@ class TabManager {
 
     // Window controls
     async minimizeWindow() {
-        try {
-            await invoke('minimize_window');
-        } catch (e) {
-            console.error('Minimize failed:', e);
-        }
+        try { await invoke('minimize_window'); } catch (e) { console.error(e); }
     }
 
     async maximizeWindow() {
-        try {
-            await invoke('maximize_window');
-        } catch (e) {
-            console.error('Maximize failed:', e);
-        }
+        try { await invoke('maximize_window'); } catch (e) { console.error(e); }
     }
 
     async closeWindow() {
-        try {
-            await invoke('close_window');
-        } catch (e) {
-            console.error('Close failed:', e);
-        }
+        try { await invoke('close_window'); } catch (e) { console.error(e); }
     }
 
     // Navigation
     async goBack() {
         const tab = this.getActiveTab();
         if (tab?.webviewLabel) {
-            try {
-                await invoke('go_back', { label: tab.webviewLabel });
-            } catch (e) {
-                console.error('Back failed:', e);
-            }
+            try { await invoke('go_back', { label: tab.webviewLabel }); } catch (e) { console.error(e); }
         }
     }
 
     async goForward() {
         const tab = this.getActiveTab();
         if (tab?.webviewLabel) {
-            try {
-                await invoke('go_forward', { label: tab.webviewLabel });
-            } catch (e) {
-                console.error('Forward failed:', e);
-            }
+            try { await invoke('go_forward', { label: tab.webviewLabel }); } catch (e) { console.error(e); }
         }
     }
 
     async reload() {
         const tab = this.getActiveTab();
         if (tab?.webviewLabel) {
-            try {
-                await invoke('reload_tab', { label: tab.webviewLabel });
-            } catch (e) {
-                console.error('Reload failed:', e);
-            }
+            try { await invoke('reload_tab', { label: tab.webviewLabel }); } catch (e) { console.error(e); }
         }
     }
 
     normalizeUrl(input) {
         if (input.includes('.') && !input.includes(' ')) {
-            if (!input.startsWith('http://') && !input.startsWith('https://')) {
+            if (!input.startsWith('http://') && !input.startsWith('https://') && !input.startsWith('file://')) {
                 return 'https://' + input;
             }
             return input;
@@ -331,7 +281,14 @@ class TabManager {
             let displayName = 'New Tab';
             try {
                 const urlObj = new URL(tab.url);
-                displayName = urlObj.hostname.replace('www.', '');
+                if (tab.url.startsWith('file://')) {
+                    const parts = tab.url.split('/');
+                    displayName = parts[parts.length - 1] || 'Local File';
+                } else if (tab.url.includes('pages/')) {
+                    displayName = tab.url.split('pages/')[1].split('.')[0].replace(/^\w/, c => c.toUpperCase());
+                } else {
+                    displayName = urlObj.hostname.replace('www.', '');
+                }
             } catch (e) {
                 displayName = tab.url.substring(0, 20);
             }
@@ -341,12 +298,18 @@ class TabManager {
             const titleEl = tabEl.querySelector('.tab-title');
             if (titleEl) titleEl.textContent = displayName;
 
-            const iconEl = tabEl.querySelector('.tab-icon');
+            const inputEl = tabEl.querySelector('.tab-url-input');
+            if (inputEl && !tabEl.classList.contains('editing')) {
+                inputEl.value = tab.url;
+            }
+
+            const iconEl = tabEl.querySelector('.tab-favicon');
             if (iconEl) {
                 const faviconUrl = this.getFaviconUrl(tab.url);
-                if (faviconUrl) {
+                if (faviconUrl && !tab.url.startsWith('file://')) {
                     iconEl.style.backgroundImage = `url(${faviconUrl})`;
-                    iconEl.style.backgroundColor = 'transparent';
+                } else {
+                    iconEl.style.backgroundImage = ''; // Reset or default
                 }
             }
         }
@@ -356,35 +319,72 @@ class TabManager {
         const tab = new Tab(this.nextId++, url);
         this.tabs.push(tab);
 
+        // Create HTML using new NOVA properties
         const tabEl = document.createElement('div');
-        tabEl.className = 'tab-item';
+        tabEl.className = 'tab';
         tabEl.dataset.tabId = tab.id;
+        tabEl.dataset.url = url;
 
         let displayName = 'New Tab';
         try {
+            // Logic repeated from updateTabDisplay, could be extracted
             const urlObj = new URL(url);
             displayName = urlObj.hostname.replace('www.', '');
-        } catch (e) {
-            displayName = url.substring(0, 20);
-        }
+        } catch (e) { }
 
         tab.title = displayName;
-
         const faviconUrl = this.getFaviconUrl(url);
-        const faviconStyle = faviconUrl ? `background-image: url(${faviconUrl}); background-color: transparent;` : '';
+        const faviconStyle = faviconUrl ? `background-image: url(${faviconUrl})` : '';
 
         tabEl.innerHTML = `
-            <span class="tab-icon" style="${faviconStyle}"></span>
-            <span class="tab-title">${displayName}</span>
-            <button class="tab-close">×</button>
+            <div class="tab-favicon" style="${faviconStyle}"></div>
+            <svg class="lock-icon-tab" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 1a3 3 0 0 0-3 3v1H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-1V4a3 3 0 0 0-3-3zm2 4V4a2 2 0 1 0-4 0v1h4z"/>
+            </svg>
+            <div class="tab-info">
+                <span class="tab-title">${displayName}</span>
+                <input type="text" class="tab-url-input" value="${url}">
+            </div>
+            <button class="tab-close">
+                <svg width="8" height="8" viewBox="0 0 8 8">
+                    <path d="M1 1L7 7M7 1L1 7" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+            </button>
         `;
 
+        // Tab Click & Edit Logic
+        const urlInput = tabEl.querySelector('.tab-url-input');
+
         tabEl.addEventListener('click', (e) => {
-            if (!e.target.classList.contains('tab-close')) {
+            if (e.target.closest('.tab-close')) return;
+
+            // If already active, switch to edit mode
+            if (tabEl.classList.contains('active')) {
+                this.activateTabEditMode(tabEl, urlInput);
+            } else {
                 this.activateTab(tab.id);
             }
         });
 
+        urlInput.addEventListener('blur', () => {
+            tabEl.classList.remove('editing');
+            // If invalid URL or empty, reset to current value
+            if (urlInput.value.trim() === '') {
+                urlInput.value = tab.url;
+            }
+        });
+
+        urlInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                urlInput.blur();
+                this.navigateToUrl(urlInput.value);
+            } else if (e.key === 'Escape') {
+                urlInput.value = tab.url;
+                urlInput.blur();
+            }
+        });
+
+        // Close button
         tabEl.querySelector('.tab-close').addEventListener('click', (e) => {
             e.stopPropagation();
             this.closeTab(tab.id);
@@ -397,14 +397,9 @@ class TabManager {
             tab.webviewLabel = label;
         } catch (e) {
             console.error('Failed to create webview:', e);
-            tabEl.querySelector('.tab-title').textContent = 'Error';
         }
 
         await this.activateTab(tab.id);
-
-        if (this.urlBar) {
-            this.urlBar.value = url;
-        }
 
         const ntpContent = document.getElementById('ntp-content');
         if (ntpContent) {
@@ -414,21 +409,29 @@ class TabManager {
         return tab;
     }
 
+    activateTabEditMode(tabEl, input) {
+        tabEl.classList.add('editing');
+        setTimeout(() => {
+            input.focus();
+            input.select();
+        }, 50);
+    }
+
     async activateTab(id) {
-        this.tabsContainer.querySelectorAll('.tab-item').forEach(t => {
-            t.classList.remove('active');
+        this.tabsContainer.querySelectorAll('.tab').forEach(t => {
+            t.classList.remove('active', 'editing');
         });
 
         const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${id}"]`);
         if (tabEl) {
             tabEl.classList.add('active');
+            tabEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
         }
 
         const tab = this.tabs.find(t => t.id === id);
         if (tab?.webviewLabel) {
             try {
                 await invoke('show_tab', { label: tab.webviewLabel });
-
                 const currentUrl = await invoke('get_tab_url', { label: tab.webviewLabel });
                 if (currentUrl) {
                     tab.url = currentUrl;
@@ -439,12 +442,7 @@ class TabManager {
             }
         }
 
-        if (tab && this.urlBar) {
-            this.urlBar.value = tab.url;
-        }
-
         this.activeTabId = id;
-        await this.updateBookmarkButton();
     }
 
     async closeTab(id) {
@@ -462,20 +460,24 @@ class TabManager {
         }
 
         this.tabs.splice(index, 1);
-        this.tabsContainer.querySelector(`[data-tab-id="${id}"]`)?.remove();
-
-        if (this.activeTabId === id && this.tabs.length > 0) {
-            const nextTab = this.tabs[Math.min(index, this.tabs.length - 1)];
-            await this.activateTab(nextTab.id);
+        const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${id}"]`);
+        if (tabEl) {
+            // Animate removal
+            tabEl.style.transform = 'scale(0.9)';
+            tabEl.style.opacity = '0';
+            setTimeout(() => tabEl.remove(), 150);
         }
 
-        if (this.tabs.length === 0) {
+        if (this.activeTabId === id && this.tabs.length > 0) {
+            // Activate adjacent tab
+            const nextTab = this.tabs[Math.max(0, index - 1)]; // Prefer left tab or first one
+            await this.activateTab(nextTab.id);
+        } else if (this.tabs.length === 0) {
+            this.activeTabId = null;
+            // Maybe show NTP content if implemented
             const ntpContent = document.getElementById('ntp-content');
             if (ntpContent) {
                 ntpContent.style.display = 'flex';
-            }
-            if (this.urlBar) {
-                this.urlBar.value = '';
             }
         }
     }
