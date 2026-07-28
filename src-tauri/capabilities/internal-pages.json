@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "internal-pages",
+  "description": "Allows bundled Casablanca pages to use their limited data commands",
+  "webviews": [
+    "tab-*"
+  ],
+  "permissions": [
+    "allow-internal-pages",
+    "core:event:default"
+  ]
+}
