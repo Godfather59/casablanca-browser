@@ -648,7 +648,7 @@ fn download_file_name(url: &Url, path: Option<&Path>) -> String {
         .map(ToOwned::to_owned)
         .or_else(|| {
             url.path_segments()
-                .and_then(|segments| segments.filter(|segment| !segment.is_empty()).next_back())
+                .and_then(|mut segments| segments.rfind(|segment| !segment.is_empty()))
                 .map(ToOwned::to_owned)
         })
         .unwrap_or_else(|| "Download".to_string())
