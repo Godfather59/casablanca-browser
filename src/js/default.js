@@ -1,3 +1,2 @@
-import '../css/base.css'
-import { TabManager } from './browser.js'
-import './ipcControl.js'
+import '../css/base.css';
+import './browser.js';

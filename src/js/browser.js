@@ -1,16 +1,34 @@
-// Tauri Browser - Full Featured Implementation
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import {
+    getFaviconUrl,
+    getTabDisplayInfo,
+    isBookmarkableUrl,
+    isInternalUrl,
+    isSecureUrl,
+    isWebUrl,
+    MAX_BROWSER_URL_LENGTH,
+    normalizeUrl,
+} from './url.js';
+import {
+    applyTheme,
+    loadPreferences,
+    PREFERENCES_KEY,
+} from './preferences.js';
 
-const TOOLBAR_HEIGHT = 76;
+const SESSION_KEY = 'casablanca_session_v1';
+const LEGACY_SESSION_KEY = 'nova_session_v2';
+const MAX_RESTORED_TABS = 50;
+const MAX_CLOSED_TABS = 20;
+const MAX_TITLE_LENGTH = 512;
 
 class Tab {
-    constructor(id, url = 'https://www.google.com') {
+    constructor(id, url) {
         this.id = id;
         this.url = url;
-        this.title = 'New Tab';
-        this.favicon = null;
+        this.title = getTabDisplayInfo(url).displayName;
         this.webviewLabel = null;
+        this.loading = true;
     }
 }
 
@@ -19,181 +37,782 @@ class TabManager {
         this.tabs = [];
         this.activeTabId = null;
         this.nextId = 1;
-        this.menuOpen = false;
         this.closedTabs = [];
+        this.restoringSession = false;
+        this.activationRequestId = 0;
+        this.preferences = loadPreferences();
+        this.toastTimeout = null;
+        this.unlisteners = [];
+        this.pendingTabEvents = new Map();
+        this.closingTabIds = new Set();
 
         this.tabsContainer = document.getElementById('tabs-inner');
-        // this.urlBar is no longer single global element
-        this.menuDropdown = document.getElementById('menu-dropdown');
-
-        // Window controls
         this.minimizeBtn = document.querySelector('.title-bar-minimize');
         this.maximizeBtn = document.querySelector('.title-bar-maximize');
         this.closeBtn = document.querySelector('.title-bar-close');
+        this.bookmarkPageBtn = document.getElementById('bookmarks-btn');
 
+        this.ready = this.initialize();
+    }
+
+    async initialize() {
+        applyTheme(this.preferences);
         this.initEventListeners();
-        this.setupUrlListener();
-
-        // Restore session
-        this.restoreSession();
+        await this.setupNativeListeners();
+        await this.restoreSession();
     }
 
     initEventListeners() {
-        // Navigation buttons
         document.getElementById('back-button')?.addEventListener('click', () => this.goBack());
         document.getElementById('forward-button')?.addEventListener('click', () => this.goForward());
         document.getElementById('reload-button')?.addEventListener('click', () => this.reload());
-        document.getElementById('home-button')?.addEventListener('click', () => this.navigateToUrl('https://www.google.com')); // Home button action
-
+        document.getElementById('home-button')?.addEventListener('click', () => {
+            this.preferences = loadPreferences();
+            this.navigateToUrl(this.preferences.homepage);
+        });
         document.getElementById('add-tab-button')?.addEventListener('click', () => this.createTab());
+        document.getElementById('menu-button')?.addEventListener('click', () => this.showAppMenu());
+        this.bookmarkPageBtn?.addEventListener('click', () => this.toggleBookmarkCurrentTab());
 
-        // Menu button
-        document.getElementById('menu-button')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.showAppMenu();
-        });
-
-        // Listen for native menu events
-        listen('menu-event', (event) => {
-            const action = event.payload;
-            this.handleMenuAction(action);
-        });
-
-        // Bookmarks button
-        document.getElementById('bookmarks-btn')?.addEventListener('click', () => this.showBookmarks());
-
-        // Window controls
         this.minimizeBtn?.addEventListener('click', () => this.minimizeWindow());
         this.maximizeBtn?.addEventListener('click', () => this.maximizeWindow());
         this.closeBtn?.addEventListener('click', () => this.closeWindow());
 
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            // General Shortcuts
-            if (e.ctrlKey && e.key === 't') {
-                e.preventDefault();
-                this.createTab();
-            }
-            if (e.ctrlKey && e.shiftKey && e.key === 'T') {
-                e.preventDefault();
-                this.restoreClosedTab();
-            }
-            if (e.ctrlKey && e.key === 'w') {
-                e.preventDefault();
-                if (this.activeTabId) {
-                    this.closeTab(this.activeTabId);
-                }
-            }
-            // Tab Switching
-            if (e.ctrlKey && e.key === 'Tab') {
-                e.preventDefault();
-                if (e.shiftKey) {
-                    this.switchTab(-1);
-                } else {
-                    this.switchTab(1);
-                }
-            }
-            // Address Bar Focus
-            if (e.ctrlKey && e.key === 'l') {
-                e.preventDefault();
-                const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${this.activeTabId}"]`);
-                if (tabEl) {
-                    const input = tabEl.querySelector('.tab-url-input');
-                    this.activateTabEditMode(tabEl, input);
-                }
-            }
-            // Features
-            if (e.ctrlKey && e.key === 'h') {
-                e.preventDefault();
-                this.showHistory();
-            }
-            if (e.ctrlKey && e.key === 'b') {
-                e.preventDefault();
-                this.showBookmarks();
-            }
-            if (e.ctrlKey && e.key === 'd') {
-                e.preventDefault();
-                this.bookmarkCurrentTab();
-            }
-            if (e.ctrlKey && e.key === 'j') {
-                e.preventDefault();
-                this.showDownloads();
-            }
-            // Open Downloads Folder (Quick Access)
-            if (e.ctrlKey && e.shiftKey && e.key === 'J') {
-                e.preventDefault();
-                invoke('open_downloads_folder');
-            }
-
-            // Navigation
-            if (e.altKey && e.key === 'ArrowLeft') {
-                e.preventDefault();
-                this.goBack();
-            }
-            if (e.altKey && e.key === 'ArrowRight') {
-                e.preventDefault();
-                this.goForward();
-            }
-            if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
-                e.preventDefault();
-                this.reload();
-            }
-            if (e.key === 'Escape') {
-                this.closeMenu();
-                const activeTabEl = this.tabsContainer.querySelector('.tab.editing');
-                if (activeTabEl) {
-                    activeTabEl.classList.remove('editing');
-                    const input = activeTabEl.querySelector('.tab-url-input');
-                    const tab = this.getActiveTab();
-                    if (input && tab) input.value = tab.url;
-                }
-            }
+        document.addEventListener('keydown', (event) => {
+            const action = this.getKeyboardAction(event);
+            if (!action) return;
+            event.preventDefault();
+            this.handleShortcut(action);
         });
 
-        // Tab Drag and Drop Container Listeners
-        this.tabsContainer.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            const draggingTab = document.querySelector('.tab.dragging');
+        this.tabsContainer?.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            const draggingTab = this.tabsContainer.querySelector('.tab.dragging');
             if (!draggingTab) return;
 
-            const afterElement = this.getDragAfterElement(this.tabsContainer, e.clientX);
-
-            // Should not drop after the "new tab" button
-            const addBtn = document.getElementById('add-tab-button');
-            if (afterElement === addBtn) {
-                this.tabsContainer.insertBefore(draggingTab, addBtn);
-            } else if (afterElement == null) {
-                // If null, it means append to end. But end is the button.
-                if (addBtn) this.tabsContainer.insertBefore(draggingTab, addBtn);
-                else this.tabsContainer.appendChild(draggingTab);
+            const afterElement = this.getDragAfterElement(this.tabsContainer, event.clientX);
+            const addButton = document.getElementById('add-tab-button');
+            if (!afterElement || afterElement === addButton) {
+                this.tabsContainer.insertBefore(draggingTab, addButton);
             } else {
                 this.tabsContainer.insertBefore(draggingTab, afterElement);
             }
         });
 
-        this.tabsContainer.addEventListener('drop', (e) => {
-            // Reorder this.tabs array based on DOM order
-            // Filter out the add button from calculation
-            const newOrderIds = Array.from(this.tabsContainer.querySelectorAll('.tab')).map(el => parseInt(el.dataset.tabId));
-            this.tabs.sort((a, b) => newOrderIds.indexOf(a.id) - newOrderIds.indexOf(b.id));
+        this.tabsContainer?.addEventListener('drop', () => {
+            const orderedIds = Array.from(this.tabsContainer.querySelectorAll('.tab'))
+                .map((element) => Number.parseInt(element.dataset.tabId, 10));
+            this.tabs.sort((left, right) => (
+                orderedIds.indexOf(left.id) - orderedIds.indexOf(right.id)
+            ));
             this.saveSession();
+        });
+
+        window.addEventListener('storage', (event) => {
+            if (event.key === PREFERENCES_KEY) {
+                this.reloadPreferences();
+            }
         });
     }
 
-    getDragAfterElement(container, x) {
-        // Exclude the add button from draggable elements consideration
-        const draggableElements = [...container.querySelectorAll('.tab:not(.dragging)')];
+    async setupNativeListeners() {
+        const subscriptions = [
+            listen('menu-event', ({ payload }) => this.handleMenuAction(payload)),
+            listen('tab-url-changed', ({ payload }) => this.handleTabEvent('url', payload)),
+            listen('tab-title-changed', ({ payload }) => this.handleTabEvent('title', payload)),
+            listen('tab-load-state', ({ payload }) => this.handleTabEvent('load', payload)),
+            listen('tab-new-window', ({ payload }) => this.createTab(payload.url)),
+            listen('tab-shortcut', ({ payload }) => {
+                this.handleShortcut(payload.action, payload.label);
+            }),
+            listen('tab-navigation-blocked', ({ payload }) => {
+                this.showToast(`Blocked unsupported URL scheme: ${payload.scheme}`);
+            }),
+            listen('download-event', ({ payload }) => {
+                if (payload.status === 'finished') {
+                    this.showToast(payload.success ? 'Download completed' : 'Download failed');
+                }
+            }),
+            listen('preferences-changed', () => this.reloadPreferences()),
+        ];
 
-        return draggableElements.reduce((closest, child) => {
-            const box = child.getBoundingClientRect();
-            // Use center of box for calculation
-            const offset = x - box.left - box.width / 2;
-            if (offset < 0 && offset > closest.offset) {
-                return { offset: offset, element: child };
-            } else {
-                return closest;
+        this.unlisteners = await Promise.all(subscriptions);
+    }
+
+    handleTabEvent(type, payload) {
+        if (!this.getTabByLabel(payload.label)) {
+            const pending = this.pendingTabEvents.get(payload.label) ?? [];
+            if (pending.length < 30) pending.push({ type, payload });
+            this.pendingTabEvents.set(payload.label, pending);
+            return;
+        }
+
+        Promise.resolve(this.dispatchTabEvent(type, payload)).catch((error) => {
+            console.error(`Failed to process ${type} event:`, error);
+        });
+    }
+
+    dispatchTabEvent(type, payload) {
+        if (type === 'url') return this.handleUrlChanged(payload);
+        if (type === 'title') return this.handleTitleChanged(payload);
+        if (type === 'load') return this.handleLoadState(payload);
+        return undefined;
+    }
+
+    async flushPendingTabEvents(label) {
+        const pending = this.pendingTabEvents.get(label) ?? [];
+        this.pendingTabEvents.delete(label);
+        for (const { type, payload } of pending) {
+            await this.dispatchTabEvent(type, payload);
+        }
+    }
+
+    reloadPreferences() {
+        this.preferences = loadPreferences();
+        applyTheme(this.preferences);
+    }
+
+    getKeyboardAction(event) {
+        const modifier = event.ctrlKey || event.metaKey;
+        const key = event.key.toLowerCase();
+
+        if (modifier && event.shiftKey && key === 't') return 'restore-tab';
+        if (modifier && event.shiftKey && key === 'j') return 'open-downloads-folder';
+        if (modifier && key === 't') return 'new-tab';
+        if (modifier && key === 'w') return 'close-tab';
+        if (modifier && key === 'l') return 'focus-address';
+        if (modifier && key === 'h') return 'history';
+        if (modifier && key === 'b') return 'bookmarks';
+        if (modifier && key === 'd') return 'bookmark';
+        if (modifier && key === 'j') return 'downloads';
+        if (modifier && key === 'r') return 'reload';
+        if (modifier && key === 'tab') return event.shiftKey ? 'previous-tab' : 'next-tab';
+        if (event.altKey && key === 'arrowleft') return 'back';
+        if (event.altKey && key === 'arrowright') return 'forward';
+        if (event.key === 'F5') return 'reload';
+        return null;
+    }
+
+    handleShortcut(action, sourceLabel = null) {
+        const activeTab = this.getActiveTab();
+        if (sourceLabel && activeTab?.webviewLabel !== sourceLabel) return;
+
+        const handlers = {
+            'new-tab': () => this.createTab(),
+            'restore-tab': () => this.restoreClosedTab(),
+            'close-tab': () => activeTab && this.closeTab(activeTab.id),
+            'focus-address': () => this.focusAddressBar(),
+            'history': () => this.showHistory(),
+            'bookmarks': () => this.showBookmarks(),
+            'bookmark': () => this.toggleBookmarkCurrentTab(),
+            'downloads': () => this.showDownloads(),
+            'open-downloads-folder': () => this.openDownloadsFolder(),
+            'reload': () => this.reload(),
+            'back': () => this.goBack(),
+            'forward': () => this.goForward(),
+            'next-tab': () => this.switchTab(1),
+            'previous-tab': () => this.switchTab(-1),
+        };
+
+        handlers[action]?.();
+    }
+
+    handleMenuAction(action) {
+        const menuActions = {
+            'new-tab': 'new-tab',
+            history: 'history',
+            bookmarks: 'bookmarks',
+            downloads: 'downloads',
+            'open-downloads-folder': 'open-downloads-folder',
+            settings: 'settings',
+        };
+
+        if (action === 'settings') {
+            this.showSettings();
+        } else {
+            this.handleShortcut(menuActions[action]);
+        }
+    }
+
+    handleUrlChanged({ label, url }) {
+        const tab = this.getTabByLabel(label);
+        if (!tab) return;
+
+        tab.url = url;
+        tab.title = getTabDisplayInfo(url).displayName;
+        this.updateTabDisplay(tab);
+        this.saveSession();
+        if (tab.id === this.activeTabId) this.refreshBookmarkState(tab);
+    }
+
+    handleTitleChanged({ label, title }) {
+        const tab = this.getTabByLabel(label);
+        const normalizedTitle = String(title ?? '').trim().slice(0, MAX_TITLE_LENGTH);
+        if (!tab || !normalizedTitle) return;
+
+        tab.title = normalizedTitle;
+        this.updateTabDisplay(tab, { preserveTitle: true });
+    }
+
+    async handleLoadState({ label, state, url }) {
+        const tab = this.getTabByLabel(label);
+        if (!tab) return;
+
+        tab.loading = state === 'started';
+        if (url) tab.url = url;
+        this.setTabLoading(tab, tab.loading);
+
+        if (state === 'finished') {
+            this.updateTabDisplay(tab, { preserveTitle: true });
+            await this.addToHistory(tab.url, tab.title);
+            this.saveSession();
+        }
+    }
+
+    createTabElement(tab) {
+        const tabElement = document.createElement('div');
+        tabElement.className = 'tab';
+        tabElement.dataset.tabId = String(tab.id);
+        tabElement.draggable = true;
+        tabElement.tabIndex = 0;
+        tabElement.setAttribute('role', 'tab');
+        tabElement.setAttribute('aria-selected', 'false');
+
+        const favicon = document.createElement('div');
+        favicon.className = 'tab-favicon loading';
+        favicon.setAttribute('aria-hidden', 'true');
+
+        const lock = document.createElement('span');
+        lock.className = 'lock-icon-tab';
+        lock.textContent = '●';
+        lock.title = 'Secure HTTPS connection';
+        lock.setAttribute('aria-label', 'Secure HTTPS connection');
+
+        const info = document.createElement('div');
+        info.className = 'tab-info';
+
+        const title = document.createElement('span');
+        title.className = 'tab-title';
+        title.textContent = tab.title;
+
+        const urlInput = document.createElement('input');
+        urlInput.type = 'text';
+        urlInput.className = 'tab-url-input';
+        urlInput.value = tab.url;
+        urlInput.autocomplete = 'off';
+        urlInput.spellcheck = false;
+        urlInput.setAttribute('aria-label', 'Address and search');
+
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'tab-close';
+        closeButton.textContent = '×';
+        closeButton.setAttribute('aria-label', `Close ${tab.title}`);
+
+        info.append(title, urlInput);
+        tabElement.append(favicon, lock, info, closeButton);
+
+        tabElement.addEventListener('dragstart', () => tabElement.classList.add('dragging'));
+        tabElement.addEventListener('dragend', () => tabElement.classList.remove('dragging'));
+        tabElement.addEventListener('mousedown', (event) => {
+            if (event.button === 1) {
+                event.preventDefault();
+                this.closeTab(tab.id);
             }
-        }, { offset: Number.NEGATIVE_INFINITY }).element;
+        });
+        tabElement.addEventListener('click', (event) => {
+            if (event.target.closest('.tab-close, .tab-url-input')) return;
+            if (tab.id === this.activeTabId) {
+                this.activateTabEditMode(tabElement, urlInput);
+            } else {
+                this.activateTab(tab.id);
+            }
+        });
+        tabElement.addEventListener('keydown', (event) => {
+            if (event.target.closest('.tab-close, .tab-url-input')) return;
+            if (!['Enter', ' '].includes(event.key)) return;
+            event.preventDefault();
+            if (tab.id === this.activeTabId) {
+                this.activateTabEditMode(tabElement, urlInput);
+            } else {
+                this.activateTab(tab.id);
+            }
+        });
+
+        urlInput.addEventListener('click', (event) => event.stopPropagation());
+        urlInput.addEventListener('blur', () => {
+            tabElement.classList.remove('editing');
+            if (!urlInput.value.trim()) urlInput.value = tab.url;
+        });
+        urlInput.addEventListener('keydown', (event) => {
+            event.stopPropagation();
+            if (event.key === 'Enter') {
+                const input = urlInput.value;
+                urlInput.blur();
+                this.navigateToUrl(input);
+            } else if (event.key === 'Escape') {
+                urlInput.value = tab.url;
+                urlInput.blur();
+            }
+        });
+        closeButton.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.closeTab(tab.id);
+        });
+
+        return tabElement;
+    }
+
+    async createTab(url = this.preferences.homepage, activate = true, persist = true) {
+        const tab = new Tab(this.nextId++, url);
+        const tabElement = this.createTabElement(tab);
+        const addButton = document.getElementById('add-tab-button');
+        let requestedActivation = null;
+
+        this.tabs.push(tab);
+        this.tabsContainer.insertBefore(tabElement, addButton);
+        if (activate) {
+            requestedActivation = ++this.activationRequestId;
+            this.activeTabId = tab.id;
+            this.updateActiveTabStyles();
+        }
+
+        try {
+            tab.webviewLabel = await invoke('create_tab', { url });
+            if (!this.tabs.includes(tab)) {
+                this.pendingTabEvents.delete(tab.webviewLabel);
+                try {
+                    await invoke('close_tab', { label: tab.webviewLabel });
+                } catch (error) {
+                    console.error('Failed to close a cancelled tab:', error);
+                }
+                return null;
+            }
+
+            await this.flushPendingTabEvents(tab.webviewLabel);
+            if (activate && requestedActivation === this.activationRequestId) {
+                await this.activateTab(tab.id);
+            }
+            if (persist) this.saveSession();
+            return tab;
+        } catch (error) {
+            console.error('Failed to create webview:', error);
+            if (tab.webviewLabel) {
+                this.pendingTabEvents.delete(tab.webviewLabel);
+                try {
+                    await invoke('close_tab', { label: tab.webviewLabel });
+                } catch (closeError) {
+                    console.error('Failed to clean up the tab webview:', closeError);
+                }
+            }
+            this.tabs = this.tabs.filter((candidate) => candidate.id !== tab.id);
+            tabElement.remove();
+            this.showToast(`Failed to open tab: ${error}`);
+
+            if (this.activeTabId === tab.id) {
+                this.activeTabId = this.tabs.at(-1)?.id ?? null;
+                if (this.activeTabId) await this.activateTab(this.activeTabId);
+            }
+            return null;
+        }
+    }
+
+    async activateTab(id) {
+        if (this.closingTabIds.has(id)) return;
+        const tab = this.tabs.find((candidate) => candidate.id === id);
+        if (!tab?.webviewLabel) return;
+
+        const requestId = ++this.activationRequestId;
+        this.activeTabId = id;
+        this.updateActiveTabStyles();
+
+        try {
+            await invoke('show_tab', { label: tab.webviewLabel });
+            if (!await this.keepLatestTabVisible(requestId)) return;
+
+            const currentUrl = await invoke('get_tab_url', { label: tab.webviewLabel });
+            if (!await this.keepLatestTabVisible(requestId)) return;
+
+            if (currentUrl) {
+                tab.url = currentUrl;
+                this.updateTabDisplay(tab, { preserveTitle: true });
+            }
+            await this.refreshBookmarkState(tab);
+            this.saveSession();
+        } catch (error) {
+            console.error('Failed to activate tab:', error);
+            this.showToast('Failed to switch tabs');
+        }
+    }
+
+    async keepLatestTabVisible(requestId) {
+        if (requestId === this.activationRequestId) return true;
+
+        const latest = this.getActiveTab();
+        if (latest?.webviewLabel) {
+            try {
+                await invoke('show_tab', { label: latest.webviewLabel });
+            } catch (error) {
+                console.error('Failed to restore the latest active tab:', error);
+            }
+        }
+        return false;
+    }
+
+    updateActiveTabStyles() {
+        this.tabsContainer.querySelectorAll('.tab').forEach((element) => {
+            const isActive = Number(element.dataset.tabId) === this.activeTabId;
+            element.classList.toggle('active', isActive);
+            element.classList.remove('editing');
+            element.setAttribute('aria-selected', String(isActive));
+        });
+    }
+
+    async closeTab(id) {
+        if (this.closingTabIds.has(id)) return;
+        const index = this.tabs.findIndex((tab) => tab.id === id);
+        if (index < 0) return;
+
+        const tab = this.tabs[index];
+        this.closingTabIds.add(id);
+
+        try {
+            if (tab.webviewLabel) {
+                await invoke('close_tab', { label: tab.webviewLabel });
+            }
+
+            const currentIndex = this.tabs.indexOf(tab);
+            if (currentIndex < 0) return;
+            const closedActiveTab = tab.id === this.activeTabId;
+
+            if (!isInternalUrl(tab.url) && tab.url !== 'about:blank') {
+                this.closedTabs.push({ url: tab.url, title: tab.title });
+                this.closedTabs = this.closedTabs.slice(-MAX_CLOSED_TABS);
+            }
+
+            this.tabs.splice(currentIndex, 1);
+            if (tab.webviewLabel) this.pendingTabEvents.delete(tab.webviewLabel);
+            const element = this.getTabElement(tab.id);
+            if (element) {
+                element.classList.add('closing');
+                setTimeout(() => element.remove(), 150);
+            }
+
+            if (!this.tabs.length) {
+                this.activeTabId = null;
+                await this.createTab(this.preferences.homepage);
+            } else if (closedActiveTab) {
+                const adjacent = this.tabs[Math.min(currentIndex, this.tabs.length - 1)];
+                await this.activateTab(adjacent.id);
+            } else {
+                this.saveSession();
+            }
+        } catch (error) {
+            console.error('Failed to close webview:', error);
+            this.showToast('Failed to close tab');
+        } finally {
+            this.closingTabIds.delete(id);
+        }
+    }
+
+    async restoreSession() {
+        this.restoringSession = true;
+        try {
+            const raw = localStorage.getItem(SESSION_KEY)
+                ?? localStorage.getItem(LEGACY_SESSION_KEY);
+            const session = raw ? JSON.parse(raw) : null;
+            const savedTabs = Array.isArray(session?.tabs)
+                ? session.tabs
+                    .filter((tab) => (
+                        typeof tab?.url === 'string'
+                        && tab.url.length <= MAX_BROWSER_URL_LENGTH
+                    ))
+                    .slice(0, MAX_RESTORED_TABS)
+                : [];
+
+            for (const savedTab of savedTabs) {
+                await this.createTab(savedTab.url, false, false);
+            }
+
+            if (this.tabs.length) {
+                const requestedIndex = Number.isInteger(session?.activeIndex)
+                    ? session.activeIndex
+                    : 0;
+                const activeIndex = Math.min(Math.max(requestedIndex, 0), this.tabs.length - 1);
+                await this.activateTab(this.tabs[activeIndex].id);
+            } else {
+                await this.createTab(this.preferences.homepage, true, false);
+            }
+
+            localStorage.removeItem(LEGACY_SESSION_KEY);
+        } catch (error) {
+            console.error('Failed to restore session:', error);
+            await this.createTab(this.preferences.homepage, true, false);
+        } finally {
+            this.restoringSession = false;
+            this.saveSession();
+        }
+    }
+
+    saveSession() {
+        if (this.restoringSession) return;
+        const activeIndex = this.tabs.findIndex((tab) => tab.id === this.activeTabId);
+        const session = {
+            tabs: this.tabs.map((tab) => ({
+                url: tab.url.length <= MAX_BROWSER_URL_LENGTH
+                    ? tab.url
+                    : this.preferences.homepage,
+            })),
+            activeIndex: Math.max(activeIndex, 0),
+        };
+        try {
+            localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        } catch (error) {
+            console.error('Failed to save session:', error);
+        }
+    }
+
+    async navigateToUrl(input) {
+        const tab = this.getActiveTab();
+        if (!tab?.webviewLabel) return;
+
+        this.preferences = loadPreferences();
+        const url = normalizeUrl(
+            input,
+            this.preferences.searchEngine,
+            this.preferences.homepage,
+        );
+        this.setTabLoading(tab, true);
+
+        try {
+            await invoke('navigate_tab', { label: tab.webviewLabel, url });
+            tab.url = url;
+            tab.title = getTabDisplayInfo(url).displayName;
+            this.updateTabDisplay(tab);
+            this.saveSession();
+        } catch (error) {
+            this.setTabLoading(tab, false);
+            this.showToast(`Navigation failed: ${error}`);
+        }
+    }
+
+    async goBack() {
+        await this.invokeForActiveTab('go_back', 'Cannot go back');
+    }
+
+    async goForward() {
+        await this.invokeForActiveTab('go_forward', 'Cannot go forward');
+    }
+
+    async reload() {
+        const tab = this.getActiveTab();
+        if (!tab) return;
+        this.setTabLoading(tab, true);
+        await this.invokeForActiveTab('reload_tab', 'Reload failed');
+    }
+
+    async invokeForActiveTab(command, errorMessage) {
+        const tab = this.getActiveTab();
+        if (!tab?.webviewLabel) return;
+        try {
+            await invoke(command, { label: tab.webviewLabel });
+        } catch (error) {
+            console.error(`${command} failed:`, error);
+            this.setTabLoading(tab, false);
+            this.showToast(errorMessage);
+        }
+    }
+
+    updateTabDisplay(tab, { preserveTitle = false } = {}) {
+        const element = this.getTabElement(tab.id);
+        if (!element) return;
+
+        const fallback = getTabDisplayInfo(tab.url);
+        if (!preserveTitle || !tab.title) tab.title = fallback.displayName;
+
+        element.classList.toggle('secure', isSecureUrl(tab.url));
+        const title = element.querySelector('.tab-title');
+        const input = element.querySelector('.tab-url-input');
+        const favicon = element.querySelector('.tab-favicon');
+        const closeButton = element.querySelector('.tab-close');
+
+        if (title) title.textContent = tab.title;
+        if (input && !element.classList.contains('editing')) input.value = tab.url;
+        if (closeButton) closeButton.setAttribute('aria-label', `Close ${tab.title}`);
+
+        if (favicon && !tab.loading) {
+            const faviconUrl = getFaviconUrl(tab.url);
+            favicon.style.backgroundImage = faviconUrl ? `url("${faviconUrl}")` : '';
+        }
+    }
+
+    setTabLoading(tab, loading) {
+        tab.loading = loading;
+        const favicon = this.getTabElement(tab.id)?.querySelector('.tab-favicon');
+        favicon?.classList.toggle('loading', loading);
+        if (!loading) this.updateTabDisplay(tab, { preserveTitle: true });
+    }
+
+    focusAddressBar() {
+        const tab = this.getActiveTab();
+        const element = tab ? this.getTabElement(tab.id) : null;
+        const input = element?.querySelector('.tab-url-input');
+        if (element && input) this.activateTabEditMode(element, input);
+    }
+
+    activateTabEditMode(tabElement, input) {
+        tabElement.classList.add('editing');
+        requestAnimationFrame(() => {
+            input.focus();
+            input.select();
+        });
+    }
+
+    async toggleBookmarkCurrentTab() {
+        const tab = this.getActiveTab();
+        if (!tab || !isBookmarkableUrl(tab.url) || isInternalUrl(tab.url)) {
+            this.showToast('Only web pages and local files can be bookmarked');
+            return;
+        }
+
+        try {
+            const result = await invoke('toggle_bookmark', {
+                url: tab.url,
+                title: tab.title || tab.url,
+            });
+            this.setBookmarkButtonState(result.bookmarked);
+            this.showToast(result.bookmarked ? 'Bookmark added' : 'Bookmark removed');
+        } catch (error) {
+            console.error('Failed to toggle bookmark:', error);
+            this.showToast('Failed to update bookmark');
+        }
+    }
+
+    async refreshBookmarkState(tab) {
+        if (
+            tab.id !== this.activeTabId
+            || !isBookmarkableUrl(tab.url)
+            || isInternalUrl(tab.url)
+        ) {
+            this.setBookmarkButtonState(false);
+            return;
+        }
+        try {
+            const bookmarked = await invoke('is_bookmarked', { url: tab.url });
+            this.setBookmarkButtonState(bookmarked);
+        } catch {
+            this.setBookmarkButtonState(false);
+        }
+    }
+
+    setBookmarkButtonState(bookmarked) {
+        this.bookmarkPageBtn?.classList.toggle('active', bookmarked);
+        this.bookmarkPageBtn?.setAttribute('aria-pressed', String(bookmarked));
+        if (this.bookmarkPageBtn) {
+            this.bookmarkPageBtn.title = bookmarked
+                ? 'Remove bookmark (Ctrl+D)'
+                : 'Bookmark this page (Ctrl+D)';
+        }
+    }
+
+    restoreClosedTab() {
+        const lastTab = this.closedTabs.pop();
+        if (lastTab) {
+            this.createTab(lastTab.url);
+        } else {
+            this.showToast('No recently closed tabs');
+        }
+    }
+
+    switchTab(direction) {
+        if (this.tabs.length < 2) return;
+        const currentIndex = this.tabs.findIndex((tab) => tab.id === this.activeTabId);
+        if (currentIndex < 0) return;
+        const nextIndex = (currentIndex + direction + this.tabs.length) % this.tabs.length;
+        this.activateTab(this.tabs[nextIndex].id);
+    }
+
+    async addToHistory(url, title) {
+        if (!isWebUrl(url) || isInternalUrl(url)) return;
+        try {
+            await invoke('add_to_history', { url, title: title || url });
+        } catch (error) {
+            console.error('Failed to add history entry:', error);
+        }
+    }
+
+    showInternalPage(page) {
+        const url = new URL(`pages/${page}.html`, window.location.href).href;
+        this.createTab(url);
+    }
+
+    showBookmarks() {
+        this.showInternalPage('bookmarks');
+    }
+
+    showHistory() {
+        this.showInternalPage('history');
+    }
+
+    showDownloads() {
+        this.showInternalPage('downloads');
+    }
+
+    showSettings() {
+        this.showInternalPage('settings');
+    }
+
+    async showAppMenu() {
+        try {
+            await invoke('show_app_menu');
+        } catch (error) {
+            console.error('Failed to show app menu:', error);
+            this.showToast('Failed to open menu');
+        }
+    }
+
+    async openDownloadsFolder() {
+        try {
+            await invoke('open_downloads_folder');
+        } catch (error) {
+            console.error('Failed to open downloads folder:', error);
+            this.showToast('Failed to open downloads folder');
+        }
+    }
+
+    async minimizeWindow() {
+        try { await invoke('minimize_window'); } catch (error) { console.error(error); }
+    }
+
+    async maximizeWindow() {
+        try { await invoke('maximize_window'); } catch (error) { console.error(error); }
+    }
+
+    async closeWindow() {
+        try { await invoke('close_window'); } catch (error) { console.error(error); }
+    }
+
+    getActiveTab() {
+        return this.tabs.find((tab) => tab.id === this.activeTabId);
+    }
+
+    getTabByLabel(label) {
+        return this.tabs.find((tab) => tab.webviewLabel === label);
+    }
+
+    getTabElement(id) {
+        return this.tabsContainer.querySelector(`[data-tab-id="${id}"]`);
+    }
+
+    getDragAfterElement(container, x) {
+        const candidates = [...container.querySelectorAll('.tab:not(.dragging)')];
+        return candidates.reduce((closest, element) => {
+            const box = element.getBoundingClientRect();
+            const offset = x - box.left - (box.width / 2);
+            return offset < 0 && offset > closest.offset
+                ? { offset, element }
+                : closest;
+        }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
     }
 
     showToast(message, duration = 3000) {
@@ -202,531 +821,20 @@ class TabManager {
             toast = document.createElement('div');
             toast.id = 'browser-toast';
             toast.className = 'toast';
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
             document.body.appendChild(toast);
         }
 
         toast.textContent = message;
         toast.classList.add('visible');
-
-        if (this.toastTimeout) clearTimeout(this.toastTimeout);
-        this.toastTimeout = setTimeout(() => {
-            toast.classList.remove('visible');
-        }, duration);
-    }
-
-    getTabDisplayInfo(url) {
-        let displayName = 'New Tab';
-        let isLocal = false;
-
-        try {
-            if (!url) return { displayName, isLocal };
-
-            const urlObj = new URL(url);
-            if (url.startsWith('file://')) {
-                const parts = url.split('/');
-                displayName = parts[parts.length - 1] || 'Local File';
-                isLocal = true;
-            } else if (url.includes('pages/')) {
-                displayName = url.split('pages/')[1].split('.')[0].replace(/^\w/, c => c.toUpperCase());
-                isLocal = true;
-            } else {
-                displayName = urlObj.hostname.replace('www.', '');
-            }
-        } catch (e) {
-            displayName = url.substring(0, 20);
-        }
-
-        return { displayName, isLocal };
-    }
-
-    saveSession() {
-        const activeIndex = this.tabs.findIndex(t => t.id === this.activeTabId);
-        const sessionData = {
-            tabs: this.tabs.map(t => ({ url: t.url })),
-            activeIndex: activeIndex
-        };
-        localStorage.setItem('nova_session_v2', JSON.stringify(sessionData));
-    }
-
-    restoreSession() {
-        try {
-            const saved = localStorage.getItem('nova_session_v2');
-            if (saved) {
-                const sessionData = JSON.parse(saved);
-                if (sessionData && Array.isArray(sessionData.tabs) && sessionData.tabs.length > 0) {
-                    let first = true;
-                    // Create all tabs without activating them (except the first one initially maybe)
-                    // We'll activate the correct one at the end
-                    for (const t of sessionData.tabs) {
-                        this.createTab(t.url, false);
-                    }
-
-                    // Restore active tab
-                    if (sessionData.activeIndex >= 0 && sessionData.activeIndex < this.tabs.length) {
-                        const tabToActivate = this.tabs[sessionData.activeIndex];
-                        this.activateTab(tabToActivate.id);
-                    } else if (this.tabs.length > 0) {
-                        this.activateTab(this.tabs[0].id);
-                    }
-                } else {
-                    this.createTab();
-                }
-            } else {
-                // Try legacy check (optional, or just default)
-                this.createTab();
-            }
-        } catch (e) {
-            console.error('Failed to restore session:', e);
-            this.createTab();
-        }
-    }
-
-    async setupUrlListener() {
-        await listen('tab-url-changed', async (event) => {
-            const { label, url } = event.payload;
-            const tab = this.tabs.find(t => t.webviewLabel === label);
-            if (tab) {
-                tab.url = url;
-                this.updateTabDisplay(tab);
-
-                // Add to history
-                await this.addToHistory(url, tab.title);
-                this.saveSession();
-            }
-        });
-    }
-
-    // Menu
-    async showAppMenu() {
-        try {
-            await invoke('show_app_menu');
-        } catch (e) {
-            console.error('Failed to show app menu:', e);
-            this.showToast('Failed to open menu');
-        }
-    }
-
-    handleMenuAction(action) {
-        switch (action) {
-            case 'new-tab':
-                this.createTab();
-                break;
-            case 'history':
-                this.showHistory();
-                break;
-            case 'bookmarks':
-                this.showBookmarks();
-                break;
-            case 'downloads':
-                this.showDownloads();
-                break;
-            case 'open-downloads-folder':
-                invoke('open_downloads_folder');
-                break;
-            case 'settings':
-                this.showSettings();
-                break;
-        }
-    }
-
-    // Actions implementations
-    showBookmarks() {
-        const baseUrl = window.location.origin;
-        this.createTab(`${baseUrl}/pages/bookmarks.html`);
-    }
-
-    // History
-    async addToHistory(url, title) {
-        try {
-            if (url.startsWith('http://localhost') || url.startsWith('about:') || url.startsWith('file://')) return;
-            await invoke('add_to_history', { url, title: title || url });
-        } catch (e) {
-            console.error('Failed to add to history:', e);
-        }
-    }
-
-    showHistory() {
-        const baseUrl = window.location.origin;
-        this.createTab(`${baseUrl}/pages/history.html`);
-    }
-
-    showDownloads() {
-        const baseUrl = window.location.origin;
-        this.createTab(`${baseUrl}/pages/downloads.html`);
-    }
-
-    showSettings() {
-        const baseUrl = window.location.origin;
-        this.createTab(`${baseUrl}/pages/settings.html`);
-    }
-
-    // Window controls
-    async minimizeWindow() { try { await invoke('minimize_window'); } catch (e) { console.error(e); } }
-    async maximizeWindow() { try { await invoke('maximize_window'); } catch (e) { console.error(e); } }
-    async closeWindow() { try { await invoke('close_window'); } catch (e) { console.error(e); } }
-
-    // Navigation
-    async goBack() {
-        const tab = this.getActiveTab();
-        if (tab?.webviewLabel) {
-            try { await invoke('go_back', { label: tab.webviewLabel }); } catch (e) { this.showToast("Cannot go back"); }
-        }
-    }
-
-    async goForward() {
-        const tab = this.getActiveTab();
-        if (tab?.webviewLabel) {
-            try { await invoke('go_forward', { label: tab.webviewLabel }); } catch (e) { this.showToast("Cannot go forward"); }
-        }
-    }
-
-    async reload() {
-        const tab = this.getActiveTab();
-        if (tab?.webviewLabel) {
-            // Show loading state
-            const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${tab.id}"]`);
-            if (tabEl) {
-                const icon = tabEl.querySelector('.tab-favicon');
-                if (icon) icon.classList.add('loading');
-            }
-
-            try {
-                await invoke('reload_tab', { label: tab.webviewLabel });
-                // Note: We don't have a 'load-finish' event yet to remove spinner, 
-                // but usually URL change or navigation clears it. 
-                // Ideally, we'd add 'tab-loading' event listener.
-                // For now, remove it after a timeout or on next URL chagne.
-                setTimeout(() => {
-                    const icon = tabEl?.querySelector('.tab-favicon');
-                    if (icon) icon.classList.remove('loading');
-                }, 2000);
-            } catch (e) {
-                this.showToast("Reload failed");
-                const icon = tabEl?.querySelector('.tab-favicon');
-                if (icon) icon.classList.remove('loading');
-            }
-        }
-    }
-
-    normalizeUrl(input) {
-        if (input.includes('.') && !input.includes(' ')) {
-            if (!input.startsWith('http://') && !input.startsWith('https://') && !input.startsWith('file://')) {
-                return 'https://' + input;
-            }
-            return input;
-        }
-        return 'https://www.google.com/search?q=' + encodeURIComponent(input);
-    }
-
-    async navigateToUrl(input) {
-        const url = this.normalizeUrl(input);
-        const activeTab = this.getActiveTab();
-
-        if (activeTab && activeTab.webviewLabel) {
-            // Show loading
-            const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${activeTab.id}"]`);
-            if (tabEl) {
-                const icon = tabEl.querySelector('.tab-favicon');
-                if (icon) icon.classList.add('loading');
-            }
-
-            try {
-                await invoke('navigate_tab', { label: activeTab.webviewLabel, url });
-                activeTab.url = url;
-                this.updateTabDisplay(activeTab);
-                this.saveSession();
-            } catch (e) {
-                console.error('Navigate failed:', e);
-                this.showToast("Navigation failed: " + e);
-                const icon = tabEl?.querySelector('.tab-favicon');
-                if (icon) icon.classList.remove('loading');
-            }
-        } else {
-            this.createTab(url);
-        }
-    }
-
-    getFaviconUrl(url) {
-        try {
-            const urlObj = new URL(url);
-            return `https://www.google.com/s2/favicons?domain=${urlObj.hostname}&sz=32`;
-        } catch (e) {
-            return null;
-        }
-    }
-
-    updateTabDisplay(tab) {
-        const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${tab.id}"]`);
-        if (tabEl) {
-            // Stop loading spinner if URL changed (implies load started/advanced)
-            const iconEl = tabEl.querySelector('.tab-favicon');
-            if (iconEl) iconEl.classList.remove('loading');
-
-            const { displayName, isLocal } = this.getTabDisplayInfo(tab.url);
-
-            tab.title = displayName;
-
-            const titleEl = tabEl.querySelector('.tab-title');
-            if (titleEl) titleEl.textContent = displayName;
-
-            const inputEl = tabEl.querySelector('.tab-url-input');
-            if (inputEl && !tabEl.classList.contains('editing')) {
-                inputEl.value = tab.url;
-            }
-
-            if (iconEl) {
-                const faviconUrl = this.getFaviconUrl(tab.url);
-                if (faviconUrl && !isLocal) {
-                    iconEl.style.backgroundImage = `url(${faviconUrl})`;
-                } else {
-                    iconEl.style.backgroundImage = ''; // Reset or default
-                }
-            }
-        }
-    }
-
-    async createTab(url = 'https://www.google.com', activate = true) {
-        const tab = new Tab(this.nextId++, url);
-        this.tabs.push(tab);
-
-        // Create HTML using new NOVA properties
-        const tabEl = document.createElement('div');
-        tabEl.className = 'tab';
-        tabEl.draggable = true; // Enable dragging
-        tabEl.dataset.tabId = tab.id;
-        tabEl.dataset.url = url;
-
-        const { displayName, isLocal } = this.getTabDisplayInfo(url);
-
-        tab.title = displayName;
-        const faviconUrl = this.getFaviconUrl(url);
-        const faviconStyle = (faviconUrl && !isLocal) ? `background-image: url(${faviconUrl})` : '';
-
-        tabEl.innerHTML = `
-            <div class="tab-favicon" style="${faviconStyle}"></div>
-            <svg class="lock-icon-tab" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 1a3 3 0 0 0-3 3v1H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-1V4a3 3 0 0 0-3-3zm2 4V4a2 2 0 1 0-4 0v1h4z"/>
-            </svg>
-            <div class="tab-info">
-                <span class="tab-title">${displayName}</span>
-                <input type="text" class="tab-url-input" value="${url}">
-            </div>
-            <button class="tab-close">
-                <svg width="8" height="8" viewBox="0 0 8 8">
-                    <path d="M1 1L7 7M7 1L1 7" stroke="currentColor" stroke-width="1.5"/>
-                </svg>
-            </button>
-        `;
-
-        // Tab Drag Events
-        tabEl.addEventListener('dragstart', () => {
-            tabEl.classList.add('dragging');
-        });
-
-        tabEl.addEventListener('dragend', () => {
-            tabEl.classList.remove('dragging');
-        });
-
-        // Tab Click & Edit Logic
-        const urlInput = tabEl.querySelector('.tab-url-input');
-
-        // Middle Click Close
-        tabEl.addEventListener('mousedown', (e) => {
-            if (e.button === 1) { // Middle click
-                e.preventDefault();
-                this.closeTab(tab.id);
-            }
-        });
-
-        tabEl.addEventListener('click', (e) => {
-            if (e.target.closest('.tab-close')) return;
-
-            // If already active, switch to edit mode
-            if (tabEl.classList.contains('active')) {
-                this.activateTabEditMode(tabEl, urlInput);
-            } else {
-                this.activateTab(tab.id);
-            }
-        });
-
-        urlInput.addEventListener('blur', () => {
-            tabEl.classList.remove('editing');
-            // If invalid URL or empty, reset to current value
-            if (urlInput.value.trim() === '') {
-                urlInput.value = tab.url;
-            }
-        });
-
-        urlInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                urlInput.blur();
-                this.navigateToUrl(urlInput.value);
-            } else if (e.key === 'Escape') {
-                urlInput.value = tab.url;
-                urlInput.blur();
-            }
-        });
-
-        // Close button
-        tabEl.querySelector('.tab-close').addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.closeTab(tab.id);
-        });
-
-        const addBtn = document.getElementById('add-tab-button');
-        if (addBtn) {
-            this.tabsContainer.insertBefore(tabEl, addBtn);
-        } else {
-            this.tabsContainer.appendChild(tabEl);
-        }
-
-        // Show immediately in DOM, then load webview
-        if (activate) {
-            await this.activateTab(tab.id);
-        }
-        this.saveSession();
-
-        try {
-            const label = await invoke('create_tab', { url });
-            tab.webviewLabel = label;
-        } catch (e) {
-            console.error('Failed to create webview:', e);
-            this.showToast('Failed to create tab content');
-        }
-
-        const ntpContent = document.getElementById('ntp-content');
-        if (ntpContent) {
-            ntpContent.style.display = 'none';
-        }
-
-        return tab;
-    }
-
-    activateTabEditMode(tabEl, input) {
-        tabEl.classList.add('editing');
-        setTimeout(() => {
-            input.focus();
-            input.select();
-        }, 50);
-    }
-
-    async activateTab(id) {
-        this.tabsContainer.querySelectorAll('.tab').forEach(t => {
-            t.classList.remove('active', 'editing');
-        });
-
-        const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${id}"]`);
-        if (tabEl) {
-            tabEl.classList.add('active');
-            tabEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-        }
-
-        const tab = this.tabs.find(t => t.id === id);
-        if (tab?.webviewLabel) {
-            try {
-                await invoke('show_tab', { label: tab.webviewLabel });
-                const currentUrl = await invoke('get_tab_url', { label: tab.webviewLabel });
-                if (currentUrl) {
-                    tab.url = currentUrl;
-                    this.updateTabDisplay(tab);
-                }
-            } catch (e) {
-                console.error('Failed to show tab:', e);
-            }
-        }
-
-        this.activeTabId = id;
-    }
-
-    async closeTab(id) {
-        const index = this.tabs.findIndex(t => t.id === id);
-        if (index === -1) return;
-
-        const tab = this.tabs[index];
-
-        if (tab.webviewLabel) {
-            try {
-                await invoke('close_tab', { label: tab.webviewLabel });
-            } catch (e) {
-                console.error('Failed to close webview:', e);
-            }
-        }
-
-        // Add to closed tabs stack for restore
-        if (tab.url !== 'about:blank' && !tab.url.startsWith('file://')) { // Filter logic as needed
-            this.closedTabs.push({ url: tab.url, title: tab.title });
-        }
-
-        this.tabs.splice(index, 1);
-        const tabEl = this.tabsContainer.querySelector(`[data-tab-id="${id}"]`);
-        if (tabEl) {
-            // Animate removal
-            tabEl.style.transform = 'scale(0.9)';
-            tabEl.style.opacity = '0';
-            setTimeout(() => tabEl.remove(), 150);
-        }
-
-        this.saveSession();
-
-        if (this.activeTabId === id && this.tabs.length > 0) {
-            // Activate adjacent tab
-            const nextTab = this.tabs[Math.max(0, index - 1)]; // Prefer left tab or first one
-            await this.activateTab(nextTab.id);
-        } else if (this.tabs.length === 0) {
-            this.activeTabId = null;
-            // Maybe show NTP content if implemented
-            const ntpContent = document.getElementById('ntp-content');
-            if (ntpContent) {
-                ntpContent.style.display = 'flex';
-            }
-        }
-    }
-
-    getActiveTab() {
-        return this.tabs.find(t => t.id === this.activeTabId);
-    }
-
-    // New Features Logic
-
-    async bookmarkCurrentTab() {
-        const tab = this.getActiveTab();
-        if (!tab) return;
-        try {
-            await invoke('add_bookmark', { url: tab.url, title: tab.title || tab.url });
-            this.showToast('Bookmarked!');
-        } catch (e) {
-            this.showToast('Failed to bookmark');
-        }
-    }
-
-    restoreClosedTab() {
-        if (this.closedTabs.length > 0) {
-            const lastTab = this.closedTabs.pop();
-            this.createTab(lastTab.url, true);
-        } else {
-            this.showToast('No recently closed tabs');
-        }
-    }
-
-    switchTab(direction) {
-        if (this.tabs.length <= 1) return;
-
-        const currentIndex = this.tabs.findIndex(t => t.id === this.activeTabId);
-        if (currentIndex === -1) return;
-
-        let newIndex = currentIndex + direction;
-        // Wrap around
-        if (newIndex < 0) newIndex = this.tabs.length - 1;
-        if (newIndex >= this.tabs.length) newIndex = 0;
-
-        const nextTab = this.tabs[newIndex];
-        this.activateTab(nextTab.id);
+        clearTimeout(this.toastTimeout);
+        this.toastTimeout = setTimeout(() => toast.classList.remove('visible'), duration);
     }
 }
 
-// Initialize
 window.addEventListener('DOMContentLoaded', () => {
     window.tabManager = new TabManager();
 });
 
-export { TabManager, Tab };
+export { Tab, TabManager };

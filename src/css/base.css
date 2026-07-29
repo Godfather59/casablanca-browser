@@ -1,7 +1,31 @@
-/* NOVA Browser Styles */
+/* Casablanca Browser Styles */
 :root {
     --toolbar-height: 50px;
     --primary-gradient: linear-gradient(135deg, #667eea, #764ba2);
+    --toolbar-background: linear-gradient(135deg, #1a1a2e, #16213e);
+    --shell-background: #111827;
+    --active-tab-background: #f8fafc;
+    --active-tab-color: #1f2937;
+    --page-background: #f8fafc;
+    --page-text: #1a1a2e;
+    --page-muted: #495057;
+}
+
+:root[data-theme="light"] {
+    --toolbar-background: linear-gradient(135deg, #334155, #475569);
+    --shell-background: #f8fafc;
+    --active-tab-background: #ffffff;
+    --active-tab-color: #1f2937;
+    --page-background: #ffffff;
+    --page-text: #1a1a2e;
+    --page-muted: #495057;
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --page-background: #111827;
+    --page-text: #f8fafc;
+    --page-muted: #94a3b8;
 }
 
 * {
@@ -69,7 +93,7 @@ body {
 .browser-window {
     width: 100vw;
     height: 100vh;
-    background: rgba(255, 255, 255, 0.98);
+    background: var(--shell-background);
     backdrop-filter: blur(20px);
     overflow: hidden;
     display: flex;
@@ -77,7 +101,7 @@ body {
 }
 
 .title-bar {
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    background: var(--toolbar-background);
     padding: 0 16px;
     /* Remove vertical padding */
     display: flex;
@@ -221,9 +245,16 @@ body {
     color: rgba(255, 255, 255, 0.9);
 }
 
+.tab:focus-visible,
+button:focus-visible,
+input:focus-visible {
+    outline: 2px solid #a5b4fc;
+    outline-offset: -2px;
+}
+
 .tab.active {
-    background: rgba(255, 255, 255, 0.95);
-    color: #333;
+    background: var(--active-tab-background);
+    color: var(--active-tab-color);
     /* Darker text for white bg */
     border-color: transparent;
     box-shadow: none;
@@ -249,6 +280,12 @@ body {
     background: rgba(255, 255, 255, 0.05);
 }
 
+.tab.closing {
+    opacity: 0;
+    transform: scale(0.92);
+    pointer-events: none;
+}
+
 .tab.editing {
     min-width: 300px;
     max-width: 500px;
@@ -268,14 +305,16 @@ body {
 }
 
 .lock-icon-tab {
-    width: 12px;
-    height: 12px;
+    width: 8px;
+    height: 8px;
+    line-height: 8px;
+    font-size: 12px;
     color: #51cf66;
     flex-shrink: 0;
     display: none;
 }
 
-.tab.editing .lock-icon-tab {
+.tab.editing.secure .lock-icon-tab {
     display: block;
 }
 
@@ -413,6 +452,11 @@ body {
     transform: translateY(-1px);
 }
 
+.action-btn.active {
+    background: rgba(102, 126, 234, 0.45);
+    color: white;
+}
+
 /* Flush Window Controls */
 .window-controls {
     display: flex;
@@ -487,7 +531,7 @@ body {
 
 .content-area {
     flex: 1;
-    background: white;
+    background: var(--page-background);
     position: relative;
     overflow: hidden;
 }
@@ -509,7 +553,7 @@ body {
 }
 
 #ntp-content h1 {
-    color: #1a1a2e;
+    color: var(--page-text);
     font-size: 48px;
     margin-bottom: 16px;
     background: linear-gradient(135deg, #667eea, #764ba2);
@@ -520,8 +564,19 @@ body {
 }
 
 #ntp-content p {
-    color: #495057;
+    color: var(--page-muted);
     line-height: 1.8;
     font-size: 16px;
     max-width: 600px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }

@@ -1,0 +1,35 @@
+[[permission]]
+identifier = "allow-browser-shell"
+description = "Allows the trusted Casablanca shell to manage tabs, browser data, and the application window."
+commands.allow = [
+  "create_tab",
+  "close_tab",
+  "show_tab",
+  "navigate_tab",
+  "get_tab_url",
+  "go_back",
+  "go_forward",
+  "reload_tab",
+  "minimize_window",
+  "maximize_window",
+  "close_window",
+  "toggle_bookmark",
+  "is_bookmarked",
+  "add_to_history",
+  "show_app_menu",
+  "open_downloads_folder",
+]
+
+[[permission]]
+identifier = "allow-internal-pages"
+description = "Allows bundled Casablanca pages to read and manage browser data."
+commands.allow = [
+  "get_bookmarks",
+  "delete_bookmark",
+  "get_history",
+  "clear_history",
+  "get_downloads",
+  "clear_downloads",
+  "clear_browsing_data",
+  "open_downloads_folder",
+]
