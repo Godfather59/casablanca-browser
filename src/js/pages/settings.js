@@ -3,6 +3,7 @@ import { emit } from '@tauri-apps/api/event';
 import {
     applyTheme,
     loadPreferences,
+    normalizeHomepage,
     savePreferences,
 } from '../preferences.js';
 
@@ -23,24 +24,31 @@ function render() {
 }
 
 async function persist(changes) {
-    preferences = savePreferences({ ...preferences, ...changes });
-    render();
-    await emit('preferences-changed', preferences);
-    status.textContent = 'Settings saved.';
+    try {
+        preferences = savePreferences({ ...preferences, ...changes });
+        render();
+        await emit('preferences-changed', preferences);
+        status.textContent = 'Settings saved.';
+    } catch (error) {
+        console.error('Failed to save settings:', error);
+        status.textContent = 'Settings could not be saved.';
+    }
 }
 
 searchEngine.addEventListener('change', () => {
-    persist({ searchEngine: searchEngine.value });
+    void persist({ searchEngine: searchEngine.value });
 });
 theme.addEventListener('change', () => {
-    persist({ theme: theme.value });
+    void persist({ theme: theme.value });
 });
 homepage.addEventListener('change', () => {
-    const previousHomepage = preferences.homepage;
-    persist({ homepage: homepage.value });
-    if (preferences.homepage === previousHomepage && homepage.value !== previousHomepage) {
+    const normalized = normalizeHomepage(homepage.value);
+    if (!normalized) {
+        homepage.value = preferences.homepage;
         status.textContent = 'Enter a complete HTTP or HTTPS URL.';
+        return;
     }
+    void persist({ homepage: normalized });
 });
 
 clearButton.addEventListener('click', async () => {

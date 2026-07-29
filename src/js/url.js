@@ -17,7 +17,9 @@ export const SEARCH_ENGINES = Object.freeze({
     },
 });
 
+export const MAX_BROWSER_URL_LENGTH = 8192;
 const EXPLICIT_BROWSER_SCHEMES = new Set(['http:', 'https:', 'file:', 'about:']);
+const BOOKMARKABLE_SCHEMES = new Set(['http:', 'https:', 'file:']);
 const INTERNAL_PAGE_NAMES = new Map([
     ['bookmarks.html', 'Bookmarks'],
     ['downloads.html', 'Downloads'],
@@ -43,16 +45,26 @@ function looksLikeWebHost(value) {
     return /^(?:www\.)?[^\s/:?#]+\.[^\s/:?#]+(?::\d+)?(?:[/?#].*)?$/.test(value);
 }
 
+function validatedPrefixedUrl(value, protocol) {
+    const candidate = `${protocol}://${value}`;
+    try {
+        const parsed = new URL(candidate);
+        return parsed.hostname ? candidate : null;
+    } catch {
+        return null;
+    }
+}
+
 export function normalizeUrl(input, engine = 'google', homepage = 'https://www.google.com') {
     const value = String(input ?? '').trim();
     if (!value) return homepage;
 
     if (looksLikeLocalAddress(value)) {
-        return `http://${value}`;
+        return validatedPrefixedUrl(value, 'http') ?? buildSearchUrl(value, engine);
     }
 
     if (looksLikeWebHost(value)) {
-        return `https://${value}`;
+        return validatedPrefixedUrl(value, 'https') ?? buildSearchUrl(value, engine);
     }
 
     if (hasExplicitScheme(value)) {
@@ -72,6 +84,22 @@ export function normalizeUrl(input, engine = 'google', homepage = 'https://www.g
 export function isSecureUrl(url) {
     try {
         return new URL(url).protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+export function isWebUrl(url) {
+    try {
+        return ['http:', 'https:'].includes(new URL(url).protocol);
+    } catch {
+        return false;
+    }
+}
+
+export function isBookmarkableUrl(url) {
+    try {
+        return BOOKMARKABLE_SCHEMES.has(new URL(url).protocol);
     } catch {
         return false;
     }

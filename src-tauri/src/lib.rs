@@ -50,6 +50,22 @@ fn parse_browser_url(url: &str) -> Result<Url, String> {
     }
 }
 
+fn parse_bookmark_url(url: &str) -> Result<Url, String> {
+    let parsed = parse_browser_url(url)?;
+    match parsed.scheme() {
+        "file" | "http" | "https" => Ok(parsed),
+        _ => Err("Only web pages and local files can be bookmarked".to_string()),
+    }
+}
+
+fn parse_history_url(url: &str) -> Result<Url, String> {
+    let parsed = parse_browser_url(url)?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(parsed),
+        _ => Err("Only HTTP and HTTPS pages can be added to history".to_string()),
+    }
+}
+
 fn bounded_text(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
 }
@@ -59,6 +75,17 @@ fn tracked_webviews() -> Result<Vec<String>, String> {
         .lock()
         .map(|labels| labels.clone())
         .map_err(|_| "Webview state is unavailable".to_string())
+}
+
+fn ensure_tracked_webview(label: &str) -> Result<(), String> {
+    let labels = WEBVIEWS
+        .lock()
+        .map_err(|_| "Webview state is unavailable".to_string())?;
+    if labels.iter().any(|existing| existing == label) {
+        Ok(())
+    } else {
+        Err(format!("Tab {label} is not managed by Casablanca"))
+    }
 }
 
 fn set_tab_fullscreen(label: &str, fullscreen: bool) -> Result<(), String> {
@@ -342,6 +369,7 @@ async fn create_tab(app: tauri::AppHandle, url: String) -> Result<String, String
 
 #[tauri::command]
 async fn close_tab(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    ensure_tracked_webview(&label)?;
     if let Some(webview) = app.get_webview(&label) {
         webview.close().map_err(|error| error.to_string())?;
     }
@@ -355,15 +383,22 @@ async fn close_tab(app: tauri::AppHandle, label: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn show_tab(app: tauri::AppHandle, label: String) -> Result<(), String> {
-    for existing_label in tracked_webviews()? {
-        if let Some(webview) = app.get_webview(&existing_label) {
-            let _ = webview.hide();
-        }
-    }
-
+    ensure_tracked_webview(&label)?;
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("Tab {label} not found"))?;
+
+    for existing_label in tracked_webviews()? {
+        if existing_label == label {
+            continue;
+        }
+        if let Some(webview) = app.get_webview(&existing_label) {
+            if let Err(error) = webview.hide() {
+                log::warn!("Failed to hide {existing_label}: {error}");
+            }
+        }
+    }
+
     resize_tab(&app, &label, is_tab_fullscreen(&label))?;
     webview.show().map_err(|error| error.to_string())?;
     webview.set_focus().map_err(|error| error.to_string())?;
@@ -372,6 +407,7 @@ async fn show_tab(app: tauri::AppHandle, label: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn navigate_tab(app: tauri::AppHandle, label: String, url: String) -> Result<(), String> {
+    ensure_tracked_webview(&label)?;
     let parsed_url = parse_browser_url(&url)?;
     let webview = app
         .get_webview(&label)
@@ -383,6 +419,7 @@ async fn navigate_tab(app: tauri::AppHandle, label: String, url: String) -> Resu
 
 #[tauri::command]
 async fn get_tab_url(app: tauri::AppHandle, label: String) -> Result<String, String> {
+    ensure_tracked_webview(&label)?;
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("Tab {label} not found"))?;
@@ -394,6 +431,7 @@ async fn get_tab_url(app: tauri::AppHandle, label: String) -> Result<String, Str
 
 #[tauri::command]
 async fn go_back(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    ensure_tracked_webview(&label)?;
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("Tab {label} not found"))?;
@@ -404,6 +442,7 @@ async fn go_back(app: tauri::AppHandle, label: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn go_forward(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    ensure_tracked_webview(&label)?;
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("Tab {label} not found"))?;
@@ -414,6 +453,7 @@ async fn go_forward(app: tauri::AppHandle, label: String) -> Result<(), String> 
 
 #[tauri::command]
 async fn reload_tab(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    ensure_tracked_webview(&label)?;
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("Tab {label} not found"))?;
@@ -506,7 +546,7 @@ fn toggle_bookmark(
     url: String,
     title: String,
 ) -> Result<BookmarkState, String> {
-    parse_browser_url(&url)?;
+    parse_bookmark_url(&url)?;
     let _guard = DATA_LOCK
         .lock()
         .map_err(|_| "Bookmark storage is unavailable".to_string())?;
@@ -579,7 +619,7 @@ struct HistoryData {
 
 #[tauri::command]
 fn add_to_history(app: tauri::AppHandle, url: String, title: String) -> Result<(), String> {
-    parse_browser_url(&url)?;
+    parse_history_url(&url)?;
     let _guard = DATA_LOCK
         .lock()
         .map_err(|_| "History storage is unavailable".to_string())?;
@@ -696,11 +736,8 @@ fn record_download_finished(
     let url_string = bounded_text(url.as_str(), MAX_URL_LENGTH);
     let status = if success { "completed" } else { "failed" };
 
-    if let Some(entry) = data
-        .entries
-        .iter_mut()
-        .find(|entry| entry.url == url_string && entry.status == "in_progress")
-    {
+    if let Some(index) = pending_download_index(&data.entries, &url_string, completed_path) {
+        let entry = &mut data.entries[index];
         entry.status = status.to_string();
         if let Some(completed_path) = completed_path {
             entry.path = completed_path.to_string_lossy().into_owned();
@@ -727,6 +764,26 @@ fn record_download_finished(
 
     data.entries.truncate(MAX_DOWNLOAD_ENTRIES);
     save_json(&path, &data)
+}
+
+fn pending_download_index(
+    entries: &[DownloadEntry],
+    url: &str,
+    completed_path: Option<&Path>,
+) -> Option<usize> {
+    completed_path
+        .and_then(|path| {
+            entries.iter().position(|entry| {
+                entry.url == url
+                    && entry.status == "in_progress"
+                    && Path::new(&entry.path) == path
+            })
+        })
+        .or_else(|| {
+            entries
+                .iter()
+                .position(|entry| entry.url == url && entry.status == "in_progress")
+        })
 }
 
 #[tauri::command]
@@ -896,4 +953,52 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Casablanca Browser");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pending_download(path: &str) -> DownloadEntry {
+        DownloadEntry {
+            id: path.to_string(),
+            url: "https://example.com/file.zip".to_string(),
+            file_name: "file.zip".to_string(),
+            path: path.to_string(),
+            status: "in_progress".to_string(),
+            timestamp: 0,
+        }
+    }
+
+    #[test]
+    fn persisted_urls_reject_executable_and_inline_schemes() {
+        assert!(parse_bookmark_url("https://example.com").is_ok());
+        assert!(parse_bookmark_url("file:///tmp/example.html").is_ok());
+        assert!(parse_bookmark_url("data:text/html,hello").is_err());
+        assert!(parse_history_url("https://example.com").is_ok());
+        assert!(parse_history_url("file:///tmp/example.html").is_err());
+        assert!(parse_history_url("javascript:alert(1)").is_err());
+    }
+
+    #[test]
+    fn concurrent_downloads_are_matched_by_destination() {
+        let entries = vec![
+            pending_download("/downloads/second.zip"),
+            pending_download("/downloads/first.zip"),
+        ];
+
+        assert_eq!(
+            pending_download_index(
+                &entries,
+                "https://example.com/file.zip",
+                Some(Path::new("/downloads/first.zip")),
+            ),
+            Some(1),
+        );
+    }
+
+    #[test]
+    fn bounded_text_counts_characters_instead_of_bytes() {
+        assert_eq!(bounded_text("éclair", 2), "éc");
+    }
 }

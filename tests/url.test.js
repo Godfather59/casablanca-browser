@@ -4,8 +4,10 @@ import {
     buildSearchUrl,
     getFaviconUrl,
     getTabDisplayInfo,
+    isBookmarkableUrl,
     isInternalUrl,
     isSecureUrl,
+    isWebUrl,
     normalizeUrl,
 } from '../src/js/url.js';
 
@@ -17,6 +19,17 @@ test('normalizes public domains to HTTPS', () => {
 test('normalizes local addresses to HTTP', () => {
     assert.equal(normalizeUrl('localhost:5173'), 'http://localhost:5173');
     assert.equal(normalizeUrl('192.168.1.10:8443/app'), 'http://192.168.1.10:8443/app');
+});
+
+test('searches malformed hosts instead of sending invalid navigation requests', () => {
+    assert.equal(
+        normalizeUrl('999.999.999.999', 'duckduckgo'),
+        'https://duckduckgo.com/?q=999.999.999.999',
+    );
+    assert.equal(
+        normalizeUrl('localhost:99999', 'bing'),
+        'https://www.bing.com/search?q=localhost%3A99999',
+    );
 });
 
 test('uses the selected search engine for text and unsupported schemes', () => {
@@ -56,6 +69,10 @@ test('derives safe display information and direct favicons', () => {
     assert.equal(getFaviconUrl('https://example.com/path'), 'https://example.com/favicon.ico');
     assert.equal(isSecureUrl('https://example.com'), true);
     assert.equal(isSecureUrl('http://example.com'), false);
+    assert.equal(isWebUrl('https://example.com'), true);
+    assert.equal(isWebUrl('file:///tmp/example.html'), false);
+    assert.equal(isBookmarkableUrl('file:///tmp/example.html'), true);
+    assert.equal(isBookmarkableUrl('data:text/html,hello'), false);
     assert.equal(isInternalUrl('tauri://localhost/pages/settings.html'), true);
     assert.equal(isInternalUrl('https://example.com/pages/settings.html'), false);
     assert.deepEqual(

@@ -3,8 +3,11 @@ import { listen } from '@tauri-apps/api/event';
 import {
     getFaviconUrl,
     getTabDisplayInfo,
+    isBookmarkableUrl,
     isInternalUrl,
     isSecureUrl,
+    isWebUrl,
+    MAX_BROWSER_URL_LENGTH,
     normalizeUrl,
 } from './url.js';
 import {
@@ -17,7 +20,6 @@ const SESSION_KEY = 'casablanca_session_v1';
 const LEGACY_SESSION_KEY = 'nova_session_v2';
 const MAX_RESTORED_TABS = 50;
 const MAX_CLOSED_TABS = 20;
-const MAX_SAVED_URL_LENGTH = 8192;
 const MAX_TITLE_LENGTH = 512;
 
 class Tab {
@@ -42,6 +44,7 @@ class TabManager {
         this.toastTimeout = null;
         this.unlisteners = [];
         this.pendingTabEvents = new Map();
+        this.closingTabIds = new Set();
 
         this.tabsContainer = document.getElementById('tabs-inner');
         this.minimizeBtn = document.querySelector('.title-bar-minimize');
@@ -271,6 +274,7 @@ class TabManager {
         tabElement.className = 'tab';
         tabElement.dataset.tabId = String(tab.id);
         tabElement.draggable = true;
+        tabElement.tabIndex = 0;
         tabElement.setAttribute('role', 'tab');
         tabElement.setAttribute('aria-selected', 'false');
 
@@ -318,6 +322,16 @@ class TabManager {
         });
         tabElement.addEventListener('click', (event) => {
             if (event.target.closest('.tab-close, .tab-url-input')) return;
+            if (tab.id === this.activeTabId) {
+                this.activateTabEditMode(tabElement, urlInput);
+            } else {
+                this.activateTab(tab.id);
+            }
+        });
+        tabElement.addEventListener('keydown', (event) => {
+            if (event.target.closest('.tab-close, .tab-url-input')) return;
+            if (!['Enter', ' '].includes(event.key)) return;
+            event.preventDefault();
             if (tab.id === this.activeTabId) {
                 this.activateTabEditMode(tabElement, urlInput);
             } else {
@@ -404,6 +418,7 @@ class TabManager {
     }
 
     async activateTab(id) {
+        if (this.closingTabIds.has(id)) return;
         const tab = this.tabs.find((candidate) => candidate.id === id);
         if (!tab?.webviewLabel) return;
 
@@ -454,40 +469,49 @@ class TabManager {
     }
 
     async closeTab(id) {
+        if (this.closingTabIds.has(id)) return;
         const index = this.tabs.findIndex((tab) => tab.id === id);
         if (index < 0) return;
 
         const tab = this.tabs[index];
-        const wasActive = tab.id === this.activeTabId;
+        this.closingTabIds.add(id);
 
-        if (tab.webviewLabel) {
-            try {
+        try {
+            if (tab.webviewLabel) {
                 await invoke('close_tab', { label: tab.webviewLabel });
-            } catch (error) {
-                console.error('Failed to close webview:', error);
             }
-        }
 
-        if (!isInternalUrl(tab.url) && tab.url !== 'about:blank') {
-            this.closedTabs.push({ url: tab.url, title: tab.title });
-            this.closedTabs = this.closedTabs.slice(-MAX_CLOSED_TABS);
-        }
+            const currentIndex = this.tabs.indexOf(tab);
+            if (currentIndex < 0) return;
+            const closedActiveTab = tab.id === this.activeTabId;
 
-        this.tabs.splice(index, 1);
-        const element = this.getTabElement(tab.id);
-        if (element) {
-            element.classList.add('closing');
-            setTimeout(() => element.remove(), 150);
-        }
+            if (!isInternalUrl(tab.url) && tab.url !== 'about:blank') {
+                this.closedTabs.push({ url: tab.url, title: tab.title });
+                this.closedTabs = this.closedTabs.slice(-MAX_CLOSED_TABS);
+            }
 
-        if (wasActive && this.tabs.length) {
-            const adjacent = this.tabs[Math.min(index, this.tabs.length - 1)];
-            await this.activateTab(adjacent.id);
-        } else if (!this.tabs.length) {
-            this.activeTabId = null;
-            await this.createTab(this.preferences.homepage);
-        } else {
-            this.saveSession();
+            this.tabs.splice(currentIndex, 1);
+            if (tab.webviewLabel) this.pendingTabEvents.delete(tab.webviewLabel);
+            const element = this.getTabElement(tab.id);
+            if (element) {
+                element.classList.add('closing');
+                setTimeout(() => element.remove(), 150);
+            }
+
+            if (!this.tabs.length) {
+                this.activeTabId = null;
+                await this.createTab(this.preferences.homepage);
+            } else if (closedActiveTab) {
+                const adjacent = this.tabs[Math.min(currentIndex, this.tabs.length - 1)];
+                await this.activateTab(adjacent.id);
+            } else {
+                this.saveSession();
+            }
+        } catch (error) {
+            console.error('Failed to close webview:', error);
+            this.showToast('Failed to close tab');
+        } finally {
+            this.closingTabIds.delete(id);
         }
     }
 
@@ -501,7 +525,7 @@ class TabManager {
                 ? session.tabs
                     .filter((tab) => (
                         typeof tab?.url === 'string'
-                        && tab.url.length <= MAX_SAVED_URL_LENGTH
+                        && tab.url.length <= MAX_BROWSER_URL_LENGTH
                     ))
                     .slice(0, MAX_RESTORED_TABS)
                 : [];
@@ -535,7 +559,7 @@ class TabManager {
         const activeIndex = this.tabs.findIndex((tab) => tab.id === this.activeTabId);
         const session = {
             tabs: this.tabs.map((tab) => ({
-                url: tab.url.length <= MAX_SAVED_URL_LENGTH
+                url: tab.url.length <= MAX_BROWSER_URL_LENGTH
                     ? tab.url
                     : this.preferences.homepage,
             })),
@@ -646,7 +670,10 @@ class TabManager {
 
     async toggleBookmarkCurrentTab() {
         const tab = this.getActiveTab();
-        if (!tab || isInternalUrl(tab.url)) return;
+        if (!tab || !isBookmarkableUrl(tab.url) || isInternalUrl(tab.url)) {
+            this.showToast('Only web pages and local files can be bookmarked');
+            return;
+        }
 
         try {
             const result = await invoke('toggle_bookmark', {
@@ -662,7 +689,11 @@ class TabManager {
     }
 
     async refreshBookmarkState(tab) {
-        if (tab.id !== this.activeTabId || isInternalUrl(tab.url)) {
+        if (
+            tab.id !== this.activeTabId
+            || !isBookmarkableUrl(tab.url)
+            || isInternalUrl(tab.url)
+        ) {
             this.setBookmarkButtonState(false);
             return;
         }
@@ -702,7 +733,7 @@ class TabManager {
     }
 
     async addToHistory(url, title) {
-        if (!url || isInternalUrl(url) || /^(about|file):/.test(url)) return;
+        if (!isWebUrl(url) || isInternalUrl(url)) return;
         try {
             await invoke('add_to_history', { url, title: title || url });
         } catch (error) {

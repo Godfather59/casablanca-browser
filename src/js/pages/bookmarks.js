@@ -1,6 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { applyTheme, loadPreferences } from '../preferences.js';
-import { element, favicon, renderEmpty } from './dom.js';
+import { isBookmarkableUrl } from '../url.js';
+import {
+    element,
+    favicon,
+    renderEmpty,
+    showPageStatus,
+} from './dom.js';
 
 const list = document.getElementById('bookmark-list');
 const search = document.getElementById('bookmark-search');
@@ -36,9 +42,16 @@ function render() {
         });
         deleteButton.addEventListener('click', async (event) => {
             event.stopPropagation();
-            await invoke('delete_bookmark', { id: bookmark.id });
-            bookmarks = bookmarks.filter((candidate) => candidate.id !== bookmark.id);
-            render();
+            deleteButton.disabled = true;
+            try {
+                await invoke('delete_bookmark', { id: bookmark.id });
+                bookmarks = bookmarks.filter((candidate) => candidate.id !== bookmark.id);
+                render();
+            } catch (error) {
+                console.error('Failed to delete bookmark:', error);
+                deleteButton.disabled = false;
+                showPageStatus('Bookmark could not be deleted.', { error: true });
+            }
         });
 
         const card = element('article', {
@@ -53,7 +66,13 @@ function render() {
             element('div', { className: 'item-actions' }, [deleteButton]),
         ]);
 
-        const open = () => { window.location.href = bookmark.url; };
+        const open = () => {
+            if (!isBookmarkableUrl(bookmark.url)) {
+                showPageStatus('This bookmark has an unsupported URL.', { error: true });
+                return;
+            }
+            window.location.assign(bookmark.url);
+        };
         card.addEventListener('click', open);
         card.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') open();

@@ -1,11 +1,28 @@
-import { SEARCH_ENGINES } from './url.js';
+import {
+    MAX_BROWSER_URL_LENGTH,
+    SEARCH_ENGINES,
+} from './url.js';
 
 export const PREFERENCES_KEY = 'casablanca_preferences_v1';
+export const MAX_HOMEPAGE_LENGTH = MAX_BROWSER_URL_LENGTH;
 export const DEFAULT_PREFERENCES = Object.freeze({
     searchEngine: 'google',
     theme: 'dark',
     homepage: 'https://www.google.com',
 });
+
+export function normalizeHomepage(value) {
+    if (typeof value !== 'string' || value.length > MAX_HOMEPAGE_LENGTH) return null;
+    try {
+        const parsed = new URL(value);
+        return (
+            ['http:', 'https:'].includes(parsed.protocol)
+            && parsed.href.length <= MAX_HOMEPAGE_LENGTH
+        ) ? parsed.href : null;
+    } catch {
+        return null;
+    }
+}
 
 function getStorage(storage) {
     if (storage) return storage;
@@ -24,17 +41,7 @@ export function sanitizePreferences(value = {}) {
         ? value.theme
         : DEFAULT_PREFERENCES.theme;
 
-    let homepage = DEFAULT_PREFERENCES.homepage;
-    if (typeof value.homepage === 'string') {
-        try {
-            const parsed = new URL(value.homepage);
-            if (['http:', 'https:'].includes(parsed.protocol)) {
-                homepage = parsed.href;
-            }
-        } catch {
-            // Keep the safe default.
-        }
-    }
+    const homepage = normalizeHomepage(value.homepage) ?? DEFAULT_PREFERENCES.homepage;
 
     return { searchEngine, theme, homepage };
 }

@@ -55,6 +55,7 @@ Check the Rust backend:
 ```bash
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
 ```
 
 Create a desktop bundle:
@@ -62,6 +63,9 @@ Create a desktop bundle:
 ```bash
 npm run tauri build
 ```
+
+Unsigned Linux, Windows, and macOS packages can also be built from the
+**Build Packages** workflow in GitHub Actions.
 
 ## Keyboard shortcuts
 

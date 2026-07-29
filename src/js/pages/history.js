@@ -1,10 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { applyTheme, loadPreferences } from '../preferences.js';
+import { isWebUrl } from '../url.js';
 import {
     element,
     favicon,
     formatTimestamp,
     renderEmpty,
+    showPageStatus,
 } from './dom.js';
 
 const list = document.getElementById('history-list');
@@ -59,7 +61,13 @@ function render() {
             }),
         ]);
 
-        const open = () => { window.location.href = entry.url; };
+        const open = () => {
+            if (!isWebUrl(entry.url)) {
+                showPageStatus('This history entry has an unsupported URL.', { error: true });
+                return;
+            }
+            window.location.assign(entry.url);
+        };
         item.addEventListener('click', open);
         item.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') open();
@@ -82,9 +90,18 @@ async function loadHistory() {
 search.addEventListener('input', render);
 clearButton.addEventListener('click', async () => {
     if (!window.confirm('Clear all browsing history?')) return;
-    await invoke('clear_history');
-    entries = [];
-    render();
+    clearButton.disabled = true;
+    try {
+        await invoke('clear_history');
+        entries = [];
+        render();
+        showPageStatus('Browsing history cleared.');
+    } catch (error) {
+        console.error('Failed to clear history:', error);
+        showPageStatus('Browsing history could not be cleared.', { error: true });
+    } finally {
+        clearButton.disabled = false;
+    }
 });
 
 loadHistory();

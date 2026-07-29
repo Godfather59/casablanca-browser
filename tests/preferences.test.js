@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
     DEFAULT_PREFERENCES,
     loadPreferences,
+    MAX_HOMEPAGE_LENGTH,
+    normalizeHomepage,
     PREFERENCES_KEY,
     resolveTheme,
     sanitizePreferences,
@@ -40,6 +42,8 @@ test('sanitizes invalid values and unsafe homepage schemes', () => {
         }),
         DEFAULT_PREFERENCES,
     );
+    assert.equal(normalizeHomepage(`https://example.com/${'x'.repeat(MAX_HOMEPAGE_LENGTH)}`), null);
+    assert.equal(normalizeHomepage(`https://example.com/${'é'.repeat(3000)}`), null);
 });
 
 test('persists valid preferences', () => {

@@ -66,6 +66,19 @@ button:active {
     transform: translateY(1px);
 }
 
+button:disabled {
+    cursor: wait;
+    opacity: 0.55;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+.item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
 button.danger:hover {
     border-color: var(--danger);
     background: var(--danger);
@@ -349,6 +362,33 @@ select:focus {
     color: var(--danger);
 }
 
+.page-toast {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 10;
+    max-width: min(420px, calc(100vw - 48px));
+    padding: 11px 15px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: 0 12px 35px rgba(0, 0, 0, 0.24);
+    color: var(--text);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(12px);
+    transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.page-toast.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.page-toast.error {
+    border-color: var(--danger);
+}
+
 @media (max-width: 700px) {
     body {
         padding: 22px 16px;
@@ -368,5 +408,16 @@ select:focus {
 
     .actions {
         flex-wrap: wrap;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
     }
 }

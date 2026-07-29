@@ -1,5 +1,7 @@
 import { getFaviconUrl } from '../url.js';
 
+let statusTimeout;
+
 export function element(tag, options = {}, children = []) {
     const node = document.createElement(tag);
     if (options.className) node.className = options.className;
@@ -51,4 +53,25 @@ export function renderEmpty(container, title, hint) {
         element('span', { text: hint }),
     ]);
     container.replaceChildren(element('div', { className: 'empty' }, [copy]));
+}
+
+export function showPageStatus(message, { error = false, duration = 3500 } = {}) {
+    let status = document.getElementById('page-status');
+    if (!status) {
+        status = element('div', {
+            className: 'page-toast',
+            attributes: {
+                id: 'page-status',
+                role: 'status',
+                'aria-live': 'polite',
+            },
+        });
+        document.body.appendChild(status);
+    }
+
+    status.textContent = message;
+    status.classList.toggle('error', error);
+    status.classList.add('visible');
+    clearTimeout(statusTimeout);
+    statusTimeout = setTimeout(() => status.classList.remove('visible'), duration);
 }
