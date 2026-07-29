@@ -774,9 +774,7 @@ fn pending_download_index(
     completed_path
         .and_then(|path| {
             entries.iter().position(|entry| {
-                entry.url == url
-                    && entry.status == "in_progress"
-                    && Path::new(&entry.path) == path
+                entry.url == url && entry.status == "in_progress" && Path::new(&entry.path) == path
             })
         })
         .or_else(|| {
